@@ -13,6 +13,7 @@ services:
       - openemr-8x-mysql-data:/var/lib/mysql
     networks:
       - openemr-8x-network
+    restart: unless-stopped
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
       interval: 10s
@@ -40,8 +41,9 @@ services:
       - openemr-8x-sites:/var/www/localhost/htdocs/openemr/sites
     networks:
       - openemr-8x-network
+    restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost/openemr/"]
+      test: ["CMD", "curl", "-f", "http://localhost/interface/login/login.php"]
       interval: 30s
       timeout: 10s
       retries: 5
@@ -62,6 +64,7 @@ services:
       - openemr-8x-sites:/var/www/localhost/htdocs/openemr/sites
     networks:
       - openemr-8x-network
+    restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:5001/"]
       interval: 10s

@@ -1,20 +1,46 @@
 #!/bin/bash
-# 🏥 Ontario Lab Simulator: Student Auto-Installer
-# This script is designed for fresh OpenEMR instances.
 
-echo "=== 🏥 Ontario Lab Simulator: One-Click Installer ==="
+echo ""
+echo "============================================"
+echo "  Ontario Lab Mocklab - Universal Installer"
+echo "============================================"
+echo ""
 
-# 1. Update and install Linux dependencies
-echo "Checking system requirements..."
-sudo apt-get update -qq && sudo apt-get install -y -qq python3-pip python3-flask python3-pymysql wget > /dev/null
+echo "Step 1: Starting Docker containers..."
+echo "   - OpenEMR database (MySQL)"
+echo "   - OpenEMR web application"
+echo "   - Lab simulator"
+echo ""
 
-# 2. Download the Turnkey script from your GitHub
-echo "Downloading simulator engine..."
-wget -q -O ontario_lab_turnkey.py https://raw.githubusercontent.com/LeoChowBello/ontario-lab-sim/main/ontario_lab_turnkey.py
+docker-compose -f docker-compose-8.0.x.yml up -d
 
-# 3. Execute the installation (Automates DB and Service setup)
-echo "Configuring OpenEMR integration (Direct Database Injection)..."
-sudo python3 ontario_lab_turnkey.py --install
+if [ $? -ne 0 ]; then
+    echo "ERROR: Docker Compose failed. Make sure Docker is running."
+    exit 1
+fi
 
-echo "=== 🎉 Installation Successful! ==="
-echo "The lab is now active and integrated into your EMR."
+echo ""
+echo "Waiting 60 seconds for services to initialize..."
+sleep 60
+
+echo ""
+echo "Step 2: Configuring database and installing tests..."
+echo ""
+
+python3 ontario_lab_turnkey.py --install
+
+if [ $? -ne 0 ]; then
+    echo "ERROR: Installation failed."
+    exit 1
+fi
+
+echo ""
+echo "============================================"
+echo "  ✅ Installation Complete!"
+echo "============================================"
+echo ""
+echo "OpenEMR:  http://localhost:8082"
+echo "Mocklab:  http://localhost:5001"
+echo "Login:    admin / pass"
+echo ""
+echo "Everything is running automatically."
