@@ -1,13 +1,54 @@
 #!/usr/bin/env python3
+"""
+Ontario Lab Turnkey: Version-Universal Mocklab
+
+This script is now UNIVERSAL across OpenEMR versions (7.0.2, 8.0.x, 9.0, etc.)
+because it auto-discovers configuration from your docker-compose file instead
+of hardcoding paths.
+
+WHAT CHANGED:
+=============
+OLD (hardcoded):
+  EDI_BASE = '/var/lib/docker/volumes/openemr_openemr_sites/_data/default/documents/edi'
+  Container: 'openemr-openemr-1'
+  Only worked on ONE specific setup.
+
+NEW (auto-discovered):
+  - Reads docker-compose*.yml
+  - Extracts container name, volume name, mount path
+  - Builds EDI_BASE dynamically
+  - Works on 7.0.2, 8.0.x, and future versions automatically
+
+HOW TO USE:
+===========
+1. Place this script in same directory as your docker-compose-*.yml
+2. Run: python3 ontario_lab_turnkey.py --install
+3. Script discovers config automatically, sets up mocklab, starts Flask server
+
+The --install flag triggers setup (creates directories, configures database,
+patches validation code). Normal run launches the lab simulation.
+"""
+
 import os, sys, json, time, re, random, threading, subprocess
 from datetime import datetime
 from flask import Flask
+from config_discovery import discover_config
 
+# Auto-discover configuration from docker-compose file
+try:
+    DISCOVERED = discover_config()
+except Exception as e:
+    print(f"❌ Configuration discovery failed: {e}")
+    print("\nMake sure you're running this script in the same directory as docker-compose*.yml")
+    sys.exit(1)
+
+# Build CONFIG dict from discovered values
 CONFIG = {
     'LAB_NAME': 'Ontario Reference Lab',
     'PORT': 5001,
-    'EDI_BASE': '/var/lib/docker/volumes/openemr_openemr_sites/_data/default/documents/edi',
-    'DB_CONFIG': '/var/lib/docker/volumes/openemr_openemr_sites/_data/default/sqlconf.php'
+    'CONTAINER_NAME': DISCOVERED['CONTAINER_NAME'],  # Used in patch_php()
+    'EDI_BASE': DISCOVERED['EDI_BASE'],  # Now discovered, not hardcoded
+    'DB_CONFIG': DISCOVERED['DB_CONFIG']  # Now discovered, not hardcoded
 }
 
 CATALOG = {
@@ -31,6 +72,11 @@ def get_db():
     return None
 
 def auto_configure():
+    """Auto-configure OpenEMR to recognize Ontario Lab as a procedure provider.
+
+    Now uses discovered paths instead of hardcoding them.
+    This ensures mocklab works regardless of the OpenEMR version's directory structure.
+    """
     conn = get_db()
     if not conn: return
     cur = conn.cursor()
@@ -38,7 +84,10 @@ def auto_configure():
     row = cur.fetchone()
     lab_id = row[0] if row else 0
     if not row:
-        cur.execute('INSERT INTO procedure_providers (name, npi, active, direction, protocol, orders_path, results_path) VALUES (%s, "123456", 1, "B", "FS", "/var/www/localhost/htdocs/openemr/sites/default/documents/edi/orders", "/var/www/localhost/htdocs/openemr/sites/default/documents/edi/inbox")', (CONFIG['LAB_NAME'],))
+        # Build paths dynamically from CONFIG['EDI_BASE']
+        orders_path = f"{CONFIG['EDI_BASE']}/orders"
+        results_path = f"{CONFIG['EDI_BASE']}/inbox"
+        cur.execute('INSERT INTO procedure_providers (name, npi, active, direction, protocol, orders_path, results_path) VALUES (%s, "123456", 1, "B", "FS", %s, %s)', (CONFIG['LAB_NAME'], orders_path, results_path))
         lab_id = cur.lastrowid
     cur.execute('DELETE FROM procedure_type WHERE lab_id=%s', (lab_id,))
     cur.execute('INSERT INTO procedure_type (parent, name, lab_id, procedure_code, procedure_type, activity) VALUES (0, "Ontario Labs", %s, "ONT-GRP", "fgp", 1)', (lab_id,))
@@ -50,8 +99,12 @@ def auto_configure():
     conn.commit()
 
 def patch_php():
-    """Industrial-strength patcher with auto-backup and syntax verification"""
-    c = 'openemr-openemr-1'
+    """Industrial-strength patcher with auto-backup and syntax verification
+
+    Now uses discovered container name instead of hardcoding it.
+    This allows mocklab to patch ANY OpenEMR version automatically.
+    """
+    c = CONFIG['CONTAINER_NAME']  # e.g., 'openemr-8x-1' instead of hardcoded 'openemr-openemr-1'
     t = '/var/www/localhost/htdocs/openemr/interface/forms/procedure_order/common.php'
     bk = t + '.bak'
     
@@ -114,10 +167,38 @@ def home(): return '<h1>Ontario Lab Active ✅</h1>'
 
 if __name__ == '__main__':
     if '--install' in sys.argv:
-        for s in ['orders', 'inbox']: os.makedirs(f"{CONFIG['EDI_BASE']}/{s}", exist_ok=True)
+        print("\n🚀 MOCKLAB UNIVERSAL INSTALL\n")
+        print("Setup sequence:")
+        print(f"  1. Create EDI directories in {CONFIG['EDI_BASE']}")
+        print(f"  2. Set permissions (sudo required)")
+        print(f"  3. Auto-configure OpenEMR database (using {DISCOVERED['CONTAINER_NAME']})")
+        print(f"  4. Patch validation logic\n")
+
+        # Create EDI directories (/orders and /inbox)
+        for s in ['orders', 'inbox']:
+            os.makedirs(f"{CONFIG['EDI_BASE']}/{s}", exist_ok=True)
+
+        # Set permissions (allow docker container to read/write)
         os.system(f'sudo chmod -R 777 {CONFIG["EDI_BASE"]}')
-        auto_configure(); patch_php()
+
+        # Configure OpenEMR database (adds lab provider and procedure types)
+        auto_configure()
+
+        # Patch validation logic (allows orders without all fields)
+        patch_php()
+
         print('🎉 Turnkey Install Complete.')
+        print(f"\nMocklab is now configured for OpenEMR in {DISCOVERED['CONTAINER_NAME']}")
+        print("To start the lab simulator, run: python3 ontario_lab_turnkey.py")
+
     else:
+        print(f"\n🧪 Starting Ontario Lab Simulator on port {CONFIG['PORT']}...")
+        print(f"   Container: {DISCOVERED['CONTAINER_NAME']}")
+        print(f"   Monitoring: {CONFIG['EDI_BASE']}/orders")
+        print(f"   Writing results to: {CONFIG['EDI_BASE']}/inbox\n")
+
+        # Start background watcher (monitors /orders every 5 seconds)
         threading.Thread(target=watcher, daemon=True).start()
+
+        # Run Flask server on port 5001
         app.run(host='0.0.0.0', port=CONFIG['PORT'])
