@@ -61,42 +61,108 @@ CATALOG = {
 }
 
 def get_db():
-    if not os.path.exists(CONFIG['DB_CONFIG']): return None
-    with open(CONFIG['DB_CONFIG']) as f:
-        txt = f.read()
+    db_config = CONFIG['DB_CONFIG']
+
+    txt = None
+    # If running on host (not in container), try to read from container
+    if not os.path.exists(db_config):
+        print(f"  Config file not found at {db_config}, trying docker exec...")
+        import subprocess
+        try:
+            # Read sqlconf.php from inside the container
+            result = subprocess.run(
+                f"docker exec {CONFIG['CONTAINER_NAME']} cat /var/www/localhost/htdocs/openemr/sites/default/sqlconf.php",
+                shell=True, capture_output=True, text=True, timeout=5
+            )
+            if result.returncode == 0:
+                txt = result.stdout
+                print(f"  ✓ Read config from container")
+            else:
+                print(f"  ✗ docker exec failed: {result.stderr[:100]}")
+                return None
+        except Exception as e:
+            print(f"  ✗ docker exec exception: {str(e)[:100]}")
+            return None
+    else:
+        with open(db_config) as f:
+            txt = f.read()
+            print(f"  ✓ Read config from {db_config}")
+
+    try:
         g = lambda v: re.search(fr'\${v}\s*=\s*[\'\"]([^\'\"]*)[\'\"]', txt).group(1)
-        import pymysql
-        for host in ['172.18.0.3', '127.0.0.1']:
-            try: return pymysql.connect(host=host, user=g('login'), password=g('pass'), database=g('dbase'))
-            except: continue
+        user = g('login')
+        pwd = g('pass')
+        db = g('dbase')
+        print(f"  Parsed: user={user}, db={db}")
+    except Exception as e:
+        print(f"  ✗ Parse error: {str(e)[:100]}")
+        return None
+
+    import pymysql
+    for host in ['172.18.0.3', '127.0.0.1', 'openemr-8x-mysql', 'openemr-8x-mysql-1']:
+        try:
+            print(f"  Trying {host}...")
+            conn = pymysql.connect(host=host, user=user, password=pwd, database=db)
+            print(f"  ✓ Connected to {host}")
+            return conn
+        except Exception as e:
+            print(f"    Failed: {str(e)[:80]}")
     return None
 
 def auto_configure():
     """Auto-configure OpenEMR to recognize Ontario Lab as a procedure provider.
 
-    Now uses discovered paths instead of hardcoding them.
-    This ensures mocklab works regardless of the OpenEMR version's directory structure.
+    When run inside container, has direct access to filesystem and MySQL.
     """
+    print("Configuring OpenEMR database...")
     conn = get_db()
-    if not conn: return
+    if not conn:
+        print("ERROR: Could not connect to database")
+        return
+
     cur = conn.cursor()
-    cur.execute('SELECT ppid FROM procedure_providers WHERE name=%s', (CONFIG['LAB_NAME'],))
-    row = cur.fetchone()
-    lab_id = row[0] if row else 0
-    if not row:
-        # Build paths dynamically from CONFIG['EDI_BASE']
-        orders_path = f"{CONFIG['EDI_BASE']}/orders"
-        results_path = f"{CONFIG['EDI_BASE']}/inbox"
-        cur.execute('INSERT INTO procedure_providers (name, npi, active, direction, protocol, orders_path, results_path) VALUES (%s, "123456", 1, "B", "FS", %s, %s)', (CONFIG['LAB_NAME'], orders_path, results_path))
-        lab_id = cur.lastrowid
-    cur.execute('DELETE FROM procedure_type WHERE lab_id=%s', (lab_id,))
-    cur.execute('INSERT INTO procedure_type (parent, name, lab_id, procedure_code, procedure_type, activity) VALUES (0, "Ontario Labs", %s, "ONT-GRP", "fgp", 1)', (lab_id,))
-    pid = cur.lastrowid
-    for c, d in CATALOG.items():
-        cur.execute('INSERT INTO procedure_type (parent, name, lab_id, procedure_code, procedure_type, units, `range`, activity, procedure_type_name) VALUES (%s, %s, %s, %s, "ord", %s, %s, 1, %s)', (pid, d['name'], lab_id, c, d['unit'], f"{d['low']}-{d['high']}", d['name']))
-    cur.execute("UPDATE list_options SET is_default = 1 WHERE list_id = 'Procedure_Billing' AND option_id = 'T'")
-    cur.execute("UPDATE list_options SET is_default = 1 WHERE list_id = 'boolean' AND option_id = '1'")
-    conn.commit()
+
+    # Build paths dynamically
+    orders_path = f"{CONFIG['EDI_BASE']}/orders"
+    results_path = f"{CONFIG['EDI_BASE']}/inbox"
+
+    try:
+        # Insert Ontario Reference Lab provider
+        cur.execute(
+            'INSERT IGNORE INTO procedure_providers (name, npi, active, direction, protocol, orders_path, results_path) VALUES (%s, %s, 1, %s, %s, %s, %s)',
+            (CONFIG['LAB_NAME'], '123456', 'B', 'FS', orders_path, results_path)
+        )
+
+        # Get lab_id
+        cur.execute('SELECT ppid FROM procedure_providers WHERE name=%s', (CONFIG['LAB_NAME'],))
+        lab_id = cur.fetchone()[0]
+
+        # Delete existing procedures for this lab
+        cur.execute('DELETE FROM procedure_type WHERE lab_id=%s', (lab_id,))
+
+        # Insert parent group
+        cur.execute(
+            'INSERT INTO procedure_type (parent, name, lab_id, procedure_code, procedure_type, activity) VALUES (0, %s, %s, %s, %s, 1)',
+            ('Ontario Labs', lab_id, 'ONT-GRP', 'fgp')
+        )
+        parent_id = cur.lastrowid
+
+        # Insert all lab tests
+        for code, data in CATALOG.items():
+            cur.execute(
+                'INSERT INTO procedure_type (parent, name, lab_id, procedure_code, procedure_type, units, `range`, activity, procedure_type_name) VALUES (%s, %s, %s, %s, %s, %s, %s, 1, %s)',
+                (parent_id, data['name'], lab_id, code, 'ord', data['unit'], f"{data['low']}-{data['high']}", data['name'])
+            )
+
+        conn.commit()
+        print("✓ Database configured")
+
+    except Exception as e:
+        print(f"ERROR during database configuration: {str(e)[:200]}")
+        conn.rollback()
+    finally:
+        cur.close()
+        conn.close()
 
 def patch_php():
     """Industrial-strength patcher with auto-backup and syntax verification
@@ -168,28 +234,109 @@ def home(): return '<h1>Ontario Lab Active ✅</h1>'
 if __name__ == '__main__':
     if '--install' in sys.argv:
         print("\n🚀 MOCKLAB UNIVERSAL INSTALL\n")
-        print("Setup sequence:")
-        print(f"  1. Create EDI directories in {CONFIG['EDI_BASE']}")
-        print(f"  2. Set permissions (sudo required)")
-        print(f"  3. Auto-configure OpenEMR database (using {DISCOVERED['CONTAINER_NAME']})")
-        print(f"  4. Patch validation logic\n")
 
-        # Create EDI directories (/orders and /inbox)
-        for s in ['orders', 'inbox']:
-            os.makedirs(f"{CONFIG['EDI_BASE']}/{s}", exist_ok=True)
+        # Check if we're running inside the container
+        in_container = os.path.exists('/var/www/localhost/htdocs/openemr/sites/default/sqlconf.php')
 
-        # Set permissions (allow docker container to read/write)
-        os.system(f'sudo chmod -R 777 {CONFIG["EDI_BASE"]}')
+        if not in_container:
+            print("Installing (using docker exec for database operations)...\n")
+            import subprocess
 
-        # Configure OpenEMR database (adds lab provider and procedure types)
-        auto_configure()
+            container_name = DISCOVERED['CONTAINER_NAME']
+            mysql_container = DISCOVERED['MYSQL_CONTAINER']
 
-        # Patch validation logic (allows orders without all fields)
-        patch_php()
+            # Create EDI directories via docker exec
+            print("  1. Creating EDI directories...")
+            for d in ['orders', 'inbox']:
+                subprocess.run(
+                    f"docker exec {container_name} mkdir -p {CONFIG['EDI_BASE']}/{d}",
+                    shell=True,
+                    check=False
+                )
 
-        print('🎉 Turnkey Install Complete.')
-        print(f"\nMocklab is now configured for OpenEMR in {DISCOVERED['CONTAINER_NAME']}")
-        print("To start the lab simulator, run: python3 ontario_lab_turnkey.py")
+            # Configure OpenEMR database via docker exec
+            print("  2. Configuring OpenEMR database...")
+
+            orders_path = f"{CONFIG['EDI_BASE']}/orders"
+            results_path = f"{CONFIG['EDI_BASE']}/inbox"
+
+            try:
+                # Step 1: Insert provider
+                sql1 = f"INSERT IGNORE INTO procedure_providers (name, npi, active, direction, protocol, orders_path, results_path) VALUES ('Ontario Reference Lab', '123456', 1, 'B', 'FS', '{orders_path}', '{results_path}');"
+                subprocess.run(
+                    f"docker exec {mysql_container} mysql -uopenemr -popenemr openemr -e \"{sql1}\"",
+                    shell=True,
+                    check=False
+                )
+
+                # Step 2: Get lab_id and insert parent
+                result = subprocess.run(
+                    f"docker exec {mysql_container} mysql -uopenemr -popenemr openemr -e \"SELECT ppid FROM procedure_providers WHERE name='Ontario Reference Lab';\"",
+                    shell=True,
+                    capture_output=True,
+                    text=True
+                )
+                lab_id = result.stdout.strip().split('\n')[-1] if result.returncode == 0 else '1'
+
+                sql2 = f"INSERT INTO procedure_type (parent, name, lab_id, procedure_code, procedure_type, activity) VALUES (0, 'Ontario Labs', {lab_id}, 'ONT-GRP', 'fgp', 1);"
+                subprocess.run(
+                    f"docker exec {mysql_container} mysql -uopenemr -popenemr openemr -e \"{sql2}\"",
+                    shell=True,
+                    check=False
+                )
+
+                # Step 3: Get parent_id and insert all tests
+                result = subprocess.run(
+                    f"docker exec {mysql_container} mysql -uopenemr -popenemr openemr -e \"SELECT procedure_type_id FROM procedure_type WHERE procedure_code='ONT-GRP';\"",
+                    shell=True,
+                    capture_output=True,
+                    text=True
+                )
+                parent_id = result.stdout.strip().split('\n')[-1] if result.returncode == 0 else '1'
+
+                # Insert each test
+                for code, data in CATALOG.items():
+                    sql = f"INSERT INTO procedure_type (parent, name, lab_id, procedure_code, procedure_type, units, `range`, activity, procedure_type_name) VALUES ({parent_id}, '{data['name']}', {lab_id}, '{code}', 'ord', '{data['unit']}', '{data['low']}-{data['high']}', 1, '{data['name']}');"
+                    subprocess.run(
+                        f"docker exec {mysql_container} mysql -uopenemr -popenemr openemr -e \"{sql}\"",
+                        shell=True,
+                        check=False
+                    )
+
+                print("  ✓ Database configured")
+            except Exception as e:
+                print(f"  ✗ Database configuration error: {str(e)[:100]}")
+
+            # Patch PHP via docker exec
+            print("  3. Patching validation logic...")
+            patch_php()
+
+            print('\n🎉 Turnkey Install Complete.')
+            print(f"Mocklab is now configured for OpenEMR in {container_name}")
+            print("To start the lab simulator, run: python3 ontario_lab_turnkey.py")
+            sys.exit(0)
+
+        else:
+            # Running inside container - do the actual installation
+            print("Setup sequence:")
+            print(f"  1. Create EDI directories in {CONFIG['EDI_BASE']}")
+            print(f"  2. Auto-configure OpenEMR database")
+            print(f"  3. Patch validation logic\n")
+
+            # Create EDI directories (/orders and /inbox)
+            for s in ['orders', 'inbox']:
+                os.makedirs(f"{CONFIG['EDI_BASE']}/{s}", exist_ok=True)
+            print("✓ EDI directories created")
+
+            # Configure OpenEMR database (adds lab provider and procedure types)
+            auto_configure()
+
+            # Patch validation logic (allows orders without all fields)
+            patch_php()
+
+            print('\n🎉 Turnkey Install Complete.')
+            print(f"Mocklab is now configured for OpenEMR in {DISCOVERED['CONTAINER_NAME']}")
+            print("To start the lab simulator, run: python3 ontario_lab_turnkey.py")
 
     else:
         print(f"\n🧪 Starting Ontario Lab Simulator on port {CONFIG['PORT']}...")

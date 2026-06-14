@@ -1,0 +1,28 @@
+Sudo is disabled on this machine. To enable it, go to the ]8;;ms-settings:developers\Developer Settings page]8;;\ in the Settings app
+🔍 Discovering OpenEMR configuration from docker-compose file...
+   Found: docker-compose-8.0.x.yml
+
+   ✅ OpenEMR service: openemr-8x
+   ✅ Container: openemr-8x-1
+   ✅ MySQL: openemr-8x-mysql-1
+   ✅ Volume: openemr-8x-sites
+   ✅ Mount path: /var/www/localhost/htdocs/openemr/sites
+   ✅ EDI base: /var/www/localhost/htdocs/openemr/sites/default/documents/edi
+
+
+🚀 MOCKLAB UNIVERSAL INSTALL
+
+Setup sequence:
+  1. Create EDI directories in /var/www/localhost/htdocs/openemr/sites/default/documents/edi
+  2. Set permissions (sudo required)
+  3. Auto-configure OpenEMR database (using openemr-8x-1)
+  4. Patch validation logic
+
+Shields up: Creating backup of core EMR files...
+Applying Frictionless Patch...
+Verifying integrity...
+✅ Patch verified and stable.
+🎉 Turnkey Install Complete.
+
+Mocklab is now configured for OpenEMR in openemr-8x-1
+To start the lab simulator, run: python3 ontario_lab_turnkey.py
