@@ -1,5 +1,11 @@
 # LOINC Code Mapping Lab
 
+## Why You're Learning This
+
+You're learning LOINC codes because **Mocklab and OpenEMR must agree on what a test is using a standard code**.
+
+When Mocklab sends back a lab result for "WBC count," it cannot just use the local name—both Mocklab and OpenEMR must use the same LOINC code (e.g., 6690-2). If the codes don't match, the result won't be connected to the order. This lab teaches you how that mapping works.
+
 ## Status
 Future lab. Use after students have completed the OpenEMR API, FHIR metadata, and scope basics.
 

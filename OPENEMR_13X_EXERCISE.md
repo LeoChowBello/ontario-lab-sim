@@ -1,5 +1,11 @@
 # OpenEMR 13.x Operability Exercise
 
+## Why You're Learning This
+
+You're learning the sequence of interoperability (login → Swagger → metadata → data access → access control) because **this is exactly what Mocklab does when it connects to OpenEMR**.
+
+Understanding this sequence helps you recognize how lab integration works end-to-end and why each step matters.
+
 ## Purpose
 Learn the order that makes OpenEMR interoperability understandable:
 login page, API docs, FHIR metadata, CapabilityStatement, then actual data access.

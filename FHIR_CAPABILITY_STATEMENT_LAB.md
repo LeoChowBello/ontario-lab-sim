@@ -1,5 +1,11 @@
 # FHIR CapabilityStatement Mini Lab
 
+## Why You're Learning This
+
+You're learning about the CapabilityStatement because **Mocklab needs to know what OpenEMR can do before sending results**.
+
+When Mocklab connects, it first asks: "What resources can this server handle? Does it support DiagnosticReport? Does it support DocumentReference?" The CapabilityStatement answers these questions.
+
 ## Goal
 Open the FHIR metadata page and record what the OpenEMR server advertises.
 
