@@ -7,7 +7,7 @@ You're learning LOINC codes because they are **essential for Mocklab to work**. 
 In both FHIR and HL7 v2 approaches, LOINC codes are the standardization layer that makes interoperability possible. This is not optional—it's how systems agree on what a test actually is.
 
 ## Status
-Future lab. Use after students have completed the OpenEMR API, FHIR metadata, and scope basics.
+Use after students have completed HL7 v2 Basics and understand the importance of standardization.
 
 ## Goal
 Learn how to find LOINC codes, map test names to standard identifiers, and connect those identifiers to the Mocklab workflow.

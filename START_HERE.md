@@ -6,20 +6,20 @@ Open the README first:
 The 13.x server address is:
 - `https://13.58.210.95`
 
-Student path:
+**Stage 1: Foundations for Mocklab**
 1. SSH Quick Start
-2. OpenEMR API Quick Start
-3. FHIR CapabilityStatement Mini Lab
-4. OpenEMR 13.x Operability Exercise
-5. OpenEMR Scopes: Beginner to Mid-Level Guide
-6. LOINC Code Mapping Lab
+2. HL7 v2 Basics
+3. LOINC Code Mapping Lab
+4. OpenEMR Database Concepts
+5. EDI File Exchange
+6. Ontario OLIS Context
 
 What to remember:
 - SSH gets you onto the server
-- OpenEMR API Quick Start explains the API terms
-- the FHIR lab shows the metadata page
-- the 13.x exercise ties it together
-- scopes control access
-- LOINC maps test names to standard codes
+- HL7 v2 is how Mocklab communicates (text-based messages with segments)
+- LOINC codes connect test names to standard identifiers
+- OpenEMR's database stores lab configuration and procedures
+- EDI uses files in directories, not APIs
+- Ontario OLIS is the real system Mocklab simulates
 
 If you only want one page to follow, use the README.

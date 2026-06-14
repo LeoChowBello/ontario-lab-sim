@@ -72,47 +72,18 @@ yes
 
 ## What To Do After You Connect
 
-Once you are on the server, follow these steps in order:
+Once you are on the server, you're ready to start the labs.
 
-### Step 1: Set Up FHIR API
+Continue with **Stage 1** labs in order:
 
-You have two options:
+1. [HL7 v2 Basics](HL7_V2_BASICS.md)
+2. [LOINC Code Mapping Lab](LOINC_CODE_MAPPING_LAB.md)
+3. [OpenEMR Database Concepts](OPENEMR_DATABASE_LAB.md)
+4. [EDI File Exchange](EDI_FILE_EXCHANGE_LAB.md)
+5. [Ontario OLIS Context](ONTARIO_OLIS_CONTEXT.md)
 
-**Option A: Automated Setup (Recommended)**
-
-If this is a fresh install or you have the `install.sh` script, run:
-
-```bash
-./install.sh
-```
-
-This will automatically enable FHIR API and configure the lab simulator via direct database injection.
-
-**Option B: Manual Setup via Web UI**
-
-If the automated setup was already done or if you need to enable FHIR manually:
-
-1. Open a web browser and go to: `https://13.58.210.95`
-2. Log in to OpenEMR as an admin user
-3. Navigate to: `Administration → Config → Connectors`
-4. Check the box: `Enable OpenEMR Standard FHIR REST API`
-5. In the `Site Address Override` field, enter: `https://13.58.210.95`
-6. Click Save
-
-### Step 2: Read OpenEMR API Quick Start
-
-After FHIR API is enabled, read:
-- [OpenEMR API Quick Start](OPENEMR_API_QUICK_START.md)
-
-This explains the API terms and shows you where to find documentation.
-
-### Step 3: Continue with the Labs
-
-Follow the student path in order:
-1. [FHIR CapabilityStatement Mini Lab](FHIR_CAPABILITY_STATEMENT_LAB.md)
-2. [OpenEMR 13.x Operability Exercise](OPENEMR_13X_EXERCISE.md)
-3. [OpenEMR Scopes Guide](OpenEMR_Scopes_Beginner_Mid_Handout.md)
-4. [LOINC Code Mapping Lab](LOINC_CODE_MAPPING_LAB.md)
+**Note on Mocklab Setup:**
+Mocklab installation happens in Stage 2, not Stage 1. The setup script will handle database configuration and file directory creation automatically.
 
 ## If It Does Not Work
 

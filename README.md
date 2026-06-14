@@ -14,44 +14,33 @@ If you only need one link, open:
 - [START_HERE.md](START_HERE.md)
 
 If you want the lab in order, follow this path:
+
+**Stage 1: Foundations for Mocklab**
 1. [SSH Quick Start](SSH_QUICK_START.md)
-2. [OpenEMR API Quick Start](OPENEMR_API_QUICK_START.md)
-3. [FHIR CapabilityStatement Mini Lab](FHIR_CAPABILITY_STATEMENT_LAB.md)
-4. [OpenEMR 13.x Operability Exercise](OPENEMR_13X_EXERCISE.md)
-5. [OpenEMR Scopes: Beginner to Mid-Level Guide](OpenEMR_Scopes_Beginner_Mid_Handout.md)
-6. [LOINC Code Mapping Lab](LOINC_CODE_MAPPING_LAB.md)
+2. [HL7 v2 Basics](HL7_V2_BASICS.md)
+3. [LOINC Code Mapping Lab](LOINC_CODE_MAPPING_LAB.md)
+4. [OpenEMR Database Concepts](OPENEMR_DATABASE_LAB.md)
+5. [EDI File Exchange](EDI_FILE_EXCHANGE_LAB.md)
+6. [Ontario OLIS Context](ONTARIO_OLIS_CONTEXT.md)
 
 What you will learn:
-- how to connect to the 13.x server
-- how OpenEMR exposes its data through APIs
-- how to navigate FHIR metadata and capabilities
-- how OAuth2 and scopes control access to patient data
+- how to connect to the server with SSH
+- how HL7 v2 messages work (the protocol Mocklab uses)
 - how LOINC codes standardize test identifiers
-- how these concepts enable Ontario OLIS lab integration (the focus of Stage 2)
+- where Mocklab writes data in OpenEMR's database
+- how order and result files flow through the system
+- how Ontario's OLIS integrates with hospital labs
 
 What to do first:
-- connect to the 13.x server with SSH
-- enable the FHIR API using one of two methods (see SSH Quick Start)
+- connect to the server with SSH
 - then follow the handouts in order
 
-## FHIR API Setup
-
-The FHIR API can be enabled in two ways:
-
-**Option A: Automated (recommended for fresh installs)**
-- Run `./install.sh` after SSH connection
-- This automatically configures everything including FHIR API
-
-**Option B: Manual via Web UI**
-- Log in to OpenEMR as admin
-- Go to: `Administration → Config → Connectors`
-- Enable: `Enable OpenEMR Standard FHIR REST API`
-- Set: `Site Address Override` to your server URL (e.g., `https://13.58.210.95`)
-
-See [SSH Quick Start](SSH_QUICK_START.md) for detailed instructions.
+## Server Address
 
 The 13.x server address is:
 - `https://13.58.210.95`
+
+See [SSH Quick Start](SSH_QUICK_START.md) for connection and setup instructions.
 
 This simulator provides a mock Ontario Reference Lab that integrates with OpenEMR using standard HL7 v2.3 protocols.
 
@@ -68,8 +57,13 @@ This simulator provides a mock Ontario Reference Lab that integrates with OpenEM
 
 ## For the Interop Team
 
-If you are part of the interop team, understand the complete path that enables OLIS integration:
+**Stage 1-2 (HL7 v2 Integration):** Understand how Mocklab simulates Ontario OLIS using file-based HL7 v2 exchange:
+- **terminology:** LOINC codes (how lab test names are standardized)
+- **protocol:** HL7 v2 messages (order and result segments)
+- **exchange:** EDI file flow (orders in, results out)
+- **database:** OpenEMR procedure tables (where Mocklab writes data)
+
+**Stage 3 (FHIR Integration):** Understand how modern FHIR apps extract data from OpenEMR:
 - **surface:** login, Swagger, FHIR metadata (how OpenEMR exposes data)
 - **access:** OAuth2 and scopes (how authorization controls what apps can read)
-- **terminology:** LOINC codes (how lab test names are standardized)
-- **exchange:** Mocklab and OpenEMR together (how Ontario OLIS integration works end-to-end)
+- **extraction:** building apps that read FHIR resources
