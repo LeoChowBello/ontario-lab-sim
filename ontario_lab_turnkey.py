@@ -203,25 +203,87 @@ def patch_php():
         print("✅ System restored to original state.")
 
 def process_logic():
-    od = f"{CONFIG['EDI_BASE']}/orders"; rd = f"{CONFIG['EDI_BASE']}/inbox"
-    if not os.path.exists(od): return
-    for f in os.listdir(od):
-        if not f.endswith('.txt'): continue
+    """Process lab orders from EDI /orders directory and generate results in /inbox.
+
+    Works from both host and container by using docker exec when needed.
+    """
+    import subprocess
+
+    od = f"{CONFIG['EDI_BASE']}/orders"
+    rd = f"{CONFIG['EDI_BASE']}/inbox"
+
+    # If running on host, use docker exec to list files in container
+    try:
+        if not os.path.exists(od):
+            # Get file list via docker exec
+            result = subprocess.run(
+                f"docker exec {DISCOVERED['CONTAINER_NAME']} ls {od} 2>/dev/null || true",
+                shell=True,
+                capture_output=True,
+                text=True
+            )
+            files = [f for f in result.stdout.strip().split('\n') if f.endswith('.txt')]
+        else:
+            files = [f for f in os.listdir(od) if f.endswith('.txt')]
+    except:
+        return
+
+    for fname in files:
         try:
-            with open(os.path.join(od, f), 'r') as r: h = r.read()
+            order_path = os.path.join(od, fname)
+
+            # Read order file
+            if os.path.exists(order_path):
+                with open(order_path, 'r') as f:
+                    h = f.read()
+            else:
+                # Read from container
+                result = subprocess.run(
+                    f"docker exec {DISCOVERED['CONTAINER_NAME']} cat {order_path}",
+                    shell=True,
+                    capture_output=True,
+                    text=True
+                )
+                if result.returncode != 0:
+                    continue
+                h = result.stdout
+
+            # Parse order
             pid = next((l for l in h.splitlines() if l.startswith('PID|')), 'PID|1||||Unk^Pat||19800101|M')
-            msh = h.splitlines()[0].split('|')
+            msh = h.splitlines()[0].split('|') if h.splitlines() else []
             ctl = msh[9] if len(msh) > 9 else 'SIM'
             ts = datetime.now().strftime('%Y%m%d%H%M%S')
+
+            # Generate result
             res = f'MSH|^~\\\\&|ONTARIOLAB|LAB|OPENEMR|CLINIC|{ts}||ORU^R01|{ctl}|D|2.3\n{pid}\n'
             for s, c in re.findall(r'OBR\|(\d+)\|.*?\|\|(.*?)\^', h):
                 res += f'OBR|{s}|{ctl}||{c}^|||{ts}|||||||||||F\n'
                 m = CATALOG.get(c, {'name': 'Test', 'unit': 'units', 'low': 0, 'high': 100})
                 v = round(random.uniform(m['low'], m['high']), 1)
                 res += f'OBX|1|NM|{c}^{m["name"]}^LN||{v}|{m["unit"]}|{m["low"]}-{m["high"]}|N|||F\n'
-            with open(os.path.join(rd, f'RES_{f}'), 'w') as w: w.write(res)
-            os.remove(os.path.join(od, f))
-        except: pass
+
+            # Write result
+            result_path = os.path.join(rd, f'RES_{fname}')
+            if os.path.exists(rd):
+                with open(result_path, 'w') as w:
+                    w.write(res)
+            else:
+                # Write to container
+                subprocess.run(
+                    f"docker exec {DISCOVERED['CONTAINER_NAME']} bash -c 'cat > {result_path}' << 'RESEND'\n{res}\nRESEND",
+                    shell=True
+                )
+
+            # Delete order
+            if os.path.exists(order_path):
+                os.remove(order_path)
+            else:
+                subprocess.run(
+                    f"docker exec {DISCOVERED['CONTAINER_NAME']} rm {order_path}",
+                    shell=True
+                )
+        except:
+            pass
 
 def watcher():
     while True:
@@ -341,7 +403,7 @@ if __name__ == '__main__':
     else:
         print(f"\n🧪 Starting Ontario Lab Simulator on port {CONFIG['PORT']}...")
         print(f"   Container: {DISCOVERED['CONTAINER_NAME']}")
-        print(f"   Monitoring: {CONFIG['EDI_BASE']}/orders")
+        print(f"   Monitoring: {CONFIG['EDI_BASE']}/orders (via docker exec)")
         print(f"   Writing results to: {CONFIG['EDI_BASE']}/inbox\n")
 
         # Start background watcher (monitors /orders every 5 seconds)

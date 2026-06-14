@@ -1,0 +1,24 @@
+🔍 Discovering OpenEMR configuration from docker-compose file...
+   Found: docker-compose-8.0.x.yml
+
+   ✅ OpenEMR service: openemr-8x
+   ✅ Container: openemr-8x-1
+   ✅ MySQL: openemr-8x-mysql-1
+   ✅ Volume: openemr-8x-sites
+   ✅ Mount path: /var/www/localhost/htdocs/openemr/sites
+   ✅ EDI base: /var/www/localhost/htdocs/openemr/sites/default/documents/edi
+
+
+🧪 Starting Ontario Lab Simulator on port 5001...
+   Container: openemr-8x-1
+   Monitoring: /var/www/localhost/htdocs/openemr/sites/default/documents/edi/orders
+   Writing results to: /var/www/localhost/htdocs/openemr/sites/default/documents/edi/inbox
+
+ * Serving Flask app 'ontario_lab_turnkey'
+ * Debug mode: off
+WARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:5001
+ * Running on http://192.168.2.26:5001
+Press CTRL+C to quit
+127.0.0.1 - - [14/Jun/2026 13:24:08] "GET / HTTP/1.1" 200 -
