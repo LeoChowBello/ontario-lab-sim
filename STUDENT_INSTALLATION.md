@@ -1,100 +1,152 @@
 # Ontario Lab Mocklab - Student Installation Guide
 
-**Complete setup in 2 commands. Everything runs automatically.**
+**Complete setup in ONE CLICK. Everything runs automatically.**
 
 ## Prerequisites
 
-- Docker and Docker Compose installed on Ubuntu Linux
-- Python 3 with Flask and PyMySQL
+### For Windows:
+- Docker Desktop installed and running
+- ~5 GB disk space
+- That's it! Python is not required.
+
+### For Linux (Ubuntu):
+- Docker and Docker Compose installed
+- Python 3 with pip
 - ~5 GB disk space
 
 ## Installation
 
-### Step 1: Start All Services
+### Option A: Windows Students (Easiest)
+
+**Step 1: Open the folder**
+
+Navigate to where you downloaded `ontario-lab-sim` and open it in File Explorer.
+
+**Step 2: Double-click `install.bat`**
+
+You'll see a console window open with progress messages:
+
+```
+============================================
+ Ontario Lab Mocklab - Universal Installer
+============================================
+
+Step 1: Starting Docker containers...
+   - OpenEMR database (MySQL)
+   - OpenEMR web application  
+   - Lab simulator
+
+[Automatic download and setup happens...]
+
+Waiting 60 seconds for services to initialize...
+⏳ 60 seconds remaining...
+[... counts down automatically ...]
+
+Step 2: Configuring database and installing tests...
+✅ Installation Complete!
+
+OpenEMR:  http://localhost:8082
+Mocklab:  http://localhost:5001
+Login:    admin / pass
+```
+
+**Step 3: Press any key**
+
+The console closes and everything is running in the background.
+
+### Option B: Linux Students (Terminal)
+
+**Step 1: Open terminal and navigate to the folder**
 
 ```bash
 cd /path/to/ontario-lab-sim
-
-docker-compose -f docker-compose-8.0.x.yml up -d
 ```
 
-This starts:
-- ✓ OpenEMR database (MySQL)
-- ✓ OpenEMR web application
-- ✓ Ontario Lab Mocklab simulator (automatically)
-
-Wait 60 seconds for OpenEMR to initialize.
-
-### Step 2: Configure Everything
+**Step 2: Run the installer**
 
 ```bash
-python3 ontario_lab_turnkey.py --install
+./install.sh
 ```
 
-This does:
-- ✓ Auto-discovers your OpenEMR setup
+You'll see the same progress messages as Windows students.
+
+**Step 3: Wait for completion**
+
+The script will exit when installation is complete.
+
+The installer automatically:
+- ✓ Auto-discovers your OpenEMR configuration
 - ✓ Creates EDI directories for file exchange
-- ✓ Adds Ontario Reference Lab to database
+- ✓ Adds Ontario Reference Lab provider to database
 - ✓ Adds all 6 lab tests (WBC, Hemoglobin, Glucose, TSH, Cholesterol, A1c)
-- ✓ Patches validation logic for simplified orders
+- ✓ Sets up the lab simulator
 
-**Expected output:**
-```
-🚀 MOCKLAB UNIVERSAL INSTALL
+## Installation Complete! ✅
 
-Installing (using docker exec for database operations)...
-  1. Creating EDI directories...
-  2. Configuring OpenEMR database...
-  ✓ Database configured
-  3. Patching validation logic...
-  ✅ Patch verified and stable.
+Everything is now running in the background automatically:
+- **OpenEMR web app:** http://localhost:8082
+- **Mocklab simulator:** http://localhost:5001
+- **Login credentials:** admin / pass
+- **Database:** Automatically configured
+- **Lab simulator:** Running continuously
 
-🎉 Turnkey Install Complete.
-```
+## Testing the Setup (5 Minutes)
 
-## That's It!
+### Step 1: Open OpenEMR in Your Browser
 
-Everything is now running automatically:
-- OpenEMR at: http://localhost:8082
-- Mocklab simulator at: http://localhost:5001 (running in background)
-- Database ready for orders
-- EDI file exchange ready
-
-## Testing the Setup
-
-### 1. Open OpenEMR
+Click this link or type it in the address bar:
 
 ```
-http://localhost:8082/interface/login/login.php
+http://localhost:8082
 ```
 
-**Login:** admin / pass
+You'll see the OpenEMR login screen.
 
-### 2. Create a Patient (or find existing one)
+### Step 2: Login
 
-Navigate to Patients section and create/find a test patient.
+- **Username:** admin
+- **Password:** pass
 
-### 3. Create a Lab Order
+Click the **Login** button.
 
-- Find the patient
-- Go to Orders or Labs section
-- Create a new Procedure Order
-- Select one of these tests:
-  - **WBC** (6690-2)
-  - **Hemoglobin** (718-7)
-  - **Glucose** (1558-6)
-  - **TSH** (3016-3)
-  - **Total Cholesterol** (2093-3)
-  - **Hemoglobin A1c** (4548-4)
-- Save the order
+### Step 3: Create a Test Patient
 
-### 4. Watch Mocklab Process It
+After login, look for the **Patients** menu on the left side. Click it.
 
-- Wait 5-10 seconds
-- The order file appears in `/orders`
-- Mocklab processes it
-- Result appears in `/inbox` as HL7 v2.3 message
-- OpenEMR imports the result
+Then click **Create Patient** (or find an existing test patient if one exists).
+
+Fill in a few fields:
+- **First Name:** John (or any name)
+- **Last Name:** TestStudent
+- **Date of Birth:** 01/01/1985
+- Click **Save**
+
+### Step 4: Create a Lab Order
+
+On the patient's page, look for **Orders** or **Procedure Orders** in the left menu.
+
+Click **New Order** or **New Procedure Order**.
+
+In the search field, type one of these lab test codes:
+- **6690-2** (WBC - White Blood Cell)
+- **718-7** (Hemoglobin)
+- **1558-6** (Glucose)
+- **3016-3** (TSH)
+- **2093-3** (Total Cholesterol)
+- **4548-4** (Hemoglobin A1c)
+
+Select the test and click **Save Order**.
+
+### Step 5: Watch Mocklab Process It (Automatic!)
+
+Wait 5-10 seconds.
+
+The mocklab simulator automatically:
+1. Detects the new order
+2. Generates a realistic lab result
+3. Sends it back to OpenEMR
+
+The result appears in the patient's chart automatically. Look for a new **Result** or **Lab Result** entry.
 
 ## What You're Learning
 
