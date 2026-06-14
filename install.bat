@@ -52,8 +52,8 @@ echo NEXT STEPS:
 echo ============================================
 echo.
 echo 1. LOGIN (browser should have opened automatically)
-echo    Username: admin
-echo    Password: pass
+echo    Enter your OpenEMR login credentials
+echo    (Check docker-compose-8.0.x.yml if you need to verify them)
 echo.
 echo 2. CREATE A TEST PATIENT
 echo    - Click "Patients" menu
