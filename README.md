@@ -73,3 +73,5 @@ This simulator provides a mock Ontario Reference Lab that integrates with OpenEM
 **For developers:** See [UNIVERSAL_MOCKLAB.md](UNIVERSAL_MOCKLAB.md) to understand how mocklab auto-discovers configuration from your docker-compose file.
 
 This makes mocklab work on any OpenEMR version (7.0.2, 8.0.x, 9.0, etc.) without code changes—an important pattern for building production-grade interop tools.
+
+**Test Status:** See [TEST_RESULTS.md](TEST_RESULTS.md) for validation results on OpenEMR 8.0.x. ✅ Config discovery verified to work.
