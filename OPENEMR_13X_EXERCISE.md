@@ -1,5 +1,11 @@
 # OpenEMR 13.x Operability Exercise
 
+## Why You're Learning This
+
+You're learning the sequence of interoperability (login → Swagger → metadata → data access → access control) because this **represents how any integration must work**. 
+
+Even though Mocklab uses HL7 v2 files instead of FHIR, it follows the same fundamental pattern: discover what the system supports, understand how to authenticate, and respect the access controls. This exercise teaches the underlying logic that applies to all integrations.
+
 ## Purpose
 Learn the order that makes OpenEMR interoperability understandable:
 login page, API docs, FHIR metadata, CapabilityStatement, then actual data access.

@@ -1,5 +1,11 @@
 # LOINC Code Mapping Lab
 
+## Why You're Learning This
+
+You're learning LOINC codes because they are **essential for Mocklab to work**. When Mocklab receives an order for "WBC count," it must match that order to the correct LOINC code (6690-2) in the database. If the codes don't match, the lab result cannot be connected to the original order.
+
+In both FHIR and HL7 v2 approaches, LOINC codes are the standardization layer that makes interoperability possible. This is not optional—it's how systems agree on what a test actually is.
+
 ## Status
 Future lab. Use after students have completed the OpenEMR API, FHIR metadata, and scope basics.
 

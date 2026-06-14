@@ -1,5 +1,11 @@
 # FHIR CapabilityStatement Mini Lab
 
+## Why You're Learning This
+
+You're learning about the CapabilityStatement because it answers a critical question: **"What can this server do?"** This is foundational knowledge for any integration work.
+
+When you understand what OpenEMR advertises (what resources it supports, what operations are available), you can design integrations that match what the server is actually capable of. Mocklab uses a different approach (HL7 v2 files), but the principle is the same: know what the system supports before trying to integrate with it.
+
 ## Goal
 Open the FHIR metadata page and record what the OpenEMR server advertises.
 

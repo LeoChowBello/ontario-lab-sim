@@ -1,5 +1,11 @@
 # OpenEMR API Quick Start
 
+## Why You're Learning This
+
+You're learning about APIs and FHIR because they represent **how modern healthcare integrations work**. Understanding the FHIR API helps you see what data OpenEMR exposes and why that data matters for interoperability.
+
+Mocklab (Stage 2) uses a simpler HL7 v2 file-based approach, but the FHIR foundation helps you understand the broader picture of how systems communicate and what data needs to flow between them.
+
 ## Goal
 Find the OpenEMR API documentation, then use it to reach the FHIR CapabilityStatement.
 

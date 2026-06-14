@@ -1,5 +1,11 @@
 # OpenEMR Scopes: Beginner to Mid-Level Guide
 
+## Why You're Learning This
+
+You're learning about OAuth2 and scopes because they represent **how real FHIR integrations control access to protected data**. Understanding scopes is critical for production integrations that handle patient data.
+
+Mocklab (Stage 2) is a simplified simulation that bypasses authentication by directly patching the database, but a real lab integration—like actual Ontario OLIS integration with a production system—would need proper OAuth2 and scopes. Learning them now prepares you for real-world integration work.
+
 ## Goal
 Learn what scopes are and why they matter after you can already open the OpenEMR login page, Swagger page, and FHIR metadata page.
 
