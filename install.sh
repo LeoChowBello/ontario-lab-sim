@@ -39,8 +39,63 @@ echo "============================================"
 echo "  ✅ Installation Complete!"
 echo "============================================"
 echo ""
-echo "OpenEMR:  http://localhost:8082"
-echo "Mocklab:  http://localhost:5001"
-echo "Login:    admin / pass"
+echo "Your healthcare IT lab is now running."
 echo ""
-echo "Everything is running automatically."
+
+# Detect environment and get the right URL
+if [ -z "$DISPLAY" ]; then
+    # Headless environment (AWS, remote server, etc.)
+    PUBLIC_IP=$(curl -s --connect-timeout 1 http://169.254.169.254/latest/meta-data/public-ipv4 2>/dev/null)
+
+    if [ -n "$PUBLIC_IP" ]; then
+        ACCESS_URL="http://$PUBLIC_IP:8082"
+    else
+        LOCAL_IP=$(hostname -I | awk '{print $1}')
+        ACCESS_URL="http://$LOCAL_IP:8082"
+    fi
+
+    echo "Access OpenEMR from your laptop:"
+    echo "  $ACCESS_URL"
+else
+    # Local GUI environment
+    ACCESS_URL="http://localhost:8082"
+    echo "Opening browser..."
+    if command -v xdg-open > /dev/null; then
+        xdg-open "$ACCESS_URL" 2>/dev/null &
+    elif command -v open > /dev/null; then
+        open "$ACCESS_URL" 2>/dev/null &
+    fi
+fi
+
+echo ""
+echo "NEXT STEPS:"
+echo "============================================"
+echo ""
+echo "1. OPEN YOUR BROWSER"
+echo "   Go to: $ACCESS_URL"
+echo ""
+echo "2. LOGIN"
+echo "   Username: admin"
+echo "   Password: pass"
+echo ""
+echo "3. CREATE A TEST PATIENT"
+echo "   - Click 'Patients' menu"
+echo "   - Click '+ New Patient'"
+echo "   - Fill in: John, Doe, DOB: 01/01/1990"
+echo "   - Click 'Save Patient'"
+echo ""
+echo "4. CREATE A LAB ORDER"
+echo "   - Click the patient name"
+echo "   - Click 'Orders' or 'New Order'"
+echo "   - Search for: 3016-3 (TSH test)"
+echo "   - Click 'Save Order'"
+echo ""
+echo "5. WATCH THE MAGIC"
+echo "   - Wait 10-15 seconds"
+echo "   - Refresh your browser"
+echo "   - See the result appear automatically!"
+echo ""
+echo "THAT'S IT! You just used HL7 messaging like hospitals do."
+echo ""
+echo "For more help, see: INSTALL.md"
+echo ""
