@@ -46,6 +46,28 @@ services:
       timeout: 10s
       retries: 5
 
+  mocklab:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: mocklab-1
+    ports:
+      - "5001:5001"
+    environment:
+      PYTHONUNBUFFERED: 1
+    depends_on:
+      openemr-8x:
+        condition: service_healthy
+    volumes:
+      - openemr-8x-sites:/var/www/localhost/htdocs/openemr/sites
+    networks:
+      - openemr-8x-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5001/"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
 volumes:
   openemr-8x-mysql-data:
   openemr-8x-sites:
