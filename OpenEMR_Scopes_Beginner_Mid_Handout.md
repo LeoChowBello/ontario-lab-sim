@@ -1,11 +1,5 @@
 # OpenEMR Scopes: Beginner to Mid-Level Guide
 
-## Why You're Learning This
-
-You're learning about OAuth2 and scopes because **Mocklab must authenticate as an authorized app to write lab results back to OpenEMR**.
-
-Without the right scopes, Mocklab can see what resources exist (via the metadata page) but cannot actually create DiagnosticReports or write patient data. Scopes are what grant Mocklab permission to do its job.
-
 ## Goal
 Learn what scopes are and why they matter after you can already open the OpenEMR login page, Swagger page, and FHIR metadata page.
 

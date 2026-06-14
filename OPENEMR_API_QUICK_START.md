@@ -1,11 +1,5 @@
 # OpenEMR API Quick Start
 
-## Why You're Learning This
-
-You're learning about APIs and FHIR because **Mocklab needs to understand how to communicate with OpenEMR**. 
-
-When Mocklab sends lab results back, it doesn't use the browser UI—it uses the FHIR API. This lab teaches you the API terms and surfaces that Mocklab relies on.
-
 ## Goal
 Find the OpenEMR API documentation, then use it to reach the FHIR CapabilityStatement.
 
