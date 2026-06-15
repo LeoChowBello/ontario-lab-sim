@@ -5,8 +5,30 @@ echo  Ontario Lab Mocklab - Universal Installer
 echo ============================================
 echo.
 
+REM Detect Docker Compose command (supports both old and new syntax)
+set "DOCKER_COMPOSE_CMD="
+where docker-compose >nul 2>&1
+if %errorlevel% equ 0 (
+    set "DOCKER_COMPOSE_CMD=docker-compose"
+) else (
+    where docker >nul 2>&1
+    if %errorlevel% equ 0 (
+        docker compose version >nul 2>&1
+        if %errorlevel% equ 0 (
+            set "DOCKER_COMPOSE_CMD=docker compose"
+        )
+    )
+)
+
+if "%DOCKER_COMPOSE_CMD%"=="" (
+    echo ERROR: Docker Compose not found.
+    echo Please install Docker Desktop, then try again.
+    pause
+    exit /b 1
+)
+
 echo Step 1: Cleaning up old containers...
-docker-compose -f docker-compose-8.0.x.yml down -v 2>nul
+%DOCKER_COMPOSE_CMD% -f docker-compose-8.0.x.yml down -v 2>nul
 
 echo Step 2: Starting Docker containers...
 echo   - OpenEMR database (MySQL)
@@ -14,7 +36,7 @@ echo   - OpenEMR web application
 echo   - Lab simulator
 echo.
 
-docker-compose -f docker-compose-8.0.x.yml up -d
+%DOCKER_COMPOSE_CMD% -f docker-compose-8.0.x.yml up -d
 
 if %errorlevel% neq 0 (
     echo ERROR: Docker Compose failed. Make sure Docker is running.

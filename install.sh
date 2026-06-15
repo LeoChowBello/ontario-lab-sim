@@ -6,13 +6,24 @@ echo "  Ontario Lab Mocklab - Universal Installer"
 echo "============================================"
 echo ""
 
+# Detect Docker Compose command (supports both old and new syntax)
+if command -v docker-compose > /dev/null 2>&1; then
+    DOCKER_COMPOSE_CMD="docker-compose"
+elif command -v docker > /dev/null 2>&1 && docker compose version > /dev/null 2>&1; then
+    DOCKER_COMPOSE_CMD="docker compose"
+else
+    echo "ERROR: Docker Compose not found."
+    echo "Please install Docker and Docker Compose, then try again."
+    exit 1
+fi
+
 echo "Step 1: Starting Docker containers..."
 echo "   - OpenEMR database (MySQL)"
 echo "   - OpenEMR web application"
 echo "   - Lab simulator"
 echo ""
 
-docker-compose -f docker-compose-8.0.x.yml up -d
+$DOCKER_COMPOSE_CMD -f docker-compose-8.0.x.yml up -d
 
 if [ $? -ne 0 ]; then
     echo "ERROR: Docker Compose failed. Make sure Docker is running."
