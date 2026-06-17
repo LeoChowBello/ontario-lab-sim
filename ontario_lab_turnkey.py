@@ -48,6 +48,19 @@ CATALOG = {
     "4548-4": dict(name="Hemoglobin A1c", unit="%", low=4.0, high=6.0),
 }
 
+DIAGNOSIS_CATALOG = [
+    ("R79.89", "Other specified abnormal findings of blood chemistry"),
+    ("D64.9", "Anemia, unspecified"),
+    ("E11.9", "Type 2 diabetes mellitus without complications"),
+    ("E78.5", "Hyperlipidemia, unspecified"),
+    ("E03.9", "Hypothyroidism, unspecified"),
+    ("R73.03", "Prediabetes"),
+    ("R53.83", "Other fatigue"),
+    ("N18.9", "Chronic kidney disease, unspecified"),
+    ("Z13.1", "Encounter for screening for diabetes mellitus"),
+    ("Z13.220", "Encounter for screening for lipoid disorders"),
+]
+
 
 def _read_sqlconf_text():
     db_config = CONFIG["DB_CONFIG"]
@@ -215,6 +228,37 @@ def auto_configure():
         conn.close()
 
 
+def seed_diagnosis_codes():
+    print("Seeding diagnosis codes...")
+    conn = get_db()
+    cur = conn.cursor()
+    try:
+        codes = [code for code, _ in DIAGNOSIS_CATALOG]
+        placeholders = ",".join(["%s"] * len(codes))
+        cur.execute(
+            f"DELETE FROM icd10_dx_order_code WHERE dx_code IN ({placeholders}) OR formatted_dx_code IN ({placeholders})",
+            codes + codes,
+        )
+        cur.executemany(
+            """
+            INSERT INTO icd10_dx_order_code
+              (dx_code, formatted_dx_code, valid_for_coding, short_desc, long_desc, active, revision)
+            VALUES (%s, %s, '1', %s, %s, 1, 0)
+            """,
+            [(code, code, desc[:60], desc) for code, desc in DIAGNOSIS_CATALOG],
+        )
+        conn.commit()
+        cur.execute("SELECT COUNT(*) FROM icd10_dx_order_code WHERE active=1 AND valid_for_coding='1'")
+        print(f"  ✓ Diagnosis code rows available: {cur.fetchone()[0]}")
+    except Exception as exc:
+        conn.rollback()
+        print(f"ERROR during diagnosis code seeding: {exc}")
+        raise
+    finally:
+        cur.close()
+        conn.close()
+
+
 def patch_php():
     container = CONFIG["CONTAINER_NAME"]
     target = "/var/www/localhost/htdocs/openemr/interface/forms/procedure_order/common.php"
@@ -356,7 +400,10 @@ if __name__ == "__main__":
         print("  2. Configuring OpenEMR database...")
         auto_configure()
 
-        print("  3. Patching validation logic...")
+        print("  3. Seeding diagnosis codes...")
+        seed_diagnosis_codes()
+
+        print("  4. Patching validation logic...")
         patch_php()
 
         print("\n🎉 Turnkey install complete.")
