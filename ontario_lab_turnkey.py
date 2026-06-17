@@ -1,413 +1,372 @@
 #!/usr/bin/env python3
 """
-Ontario Lab Turnkey: Version-Universal Mocklab
+Ontario Lab Turnkey: version-universal mocklab
 
-This script is now UNIVERSAL across OpenEMR versions (7.0.2, 8.0.x, 9.0, etc.)
-because it auto-discovers configuration from your docker-compose file instead
-of hardcoding paths.
-
-WHAT CHANGED:
-=============
-OLD (hardcoded):
-  EDI_BASE = '/var/lib/docker/volumes/openemr_openemr_sites/_data/default/documents/edi'
-  Container: 'openemr-openemr-1'
-  Only worked on ONE specific setup.
-
-NEW (auto-discovered):
-  - Reads docker-compose*.yml
-  - Extracts container name, volume name, mount path
-  - Builds EDI_BASE dynamically
-  - Works on 7.0.2, 8.0.x, and future versions automatically
-
-HOW TO USE:
-===========
-1. Place this script in same directory as your docker-compose-*.yml
-2. Run: python3 ontario_lab_turnkey.py --install
-3. Script discovers config automatically, sets up mocklab, starts Flask server
-
-The --install flag triggers setup (creates directories, configures database,
-patches validation code). Normal run launches the lab simulation.
+The script discovers the OpenEMR Docker layout from docker-compose, inserts the
+Ontario Reference Lab rows, patches the procedure-order validation, and then
+runs the lightweight Flask watcher that turns outgoing orders into inbound
+results.
 """
 
-import os, sys, json, time, re, random, threading, subprocess
+import os
+import random
+import re
+import subprocess
+import sys
+import threading
+import time
 from datetime import datetime
+
+import pymysql
 from flask import Flask
+
 from config_discovery import discover_config
 
-# Auto-discover configuration from docker-compose file
 try:
     DISCOVERED = discover_config()
-except Exception as e:
-    print(f"❌ Configuration discovery failed: {e}")
-    print("\nMake sure you're running this script in the same directory as docker-compose*.yml")
+except Exception as exc:
+    print(f"Configuration discovery failed: {exc}")
+    print("Run this from the same directory as docker-compose*.yml")
     sys.exit(1)
 
-# Build CONFIG dict from discovered values
 CONFIG = {
-    'LAB_NAME': 'Ontario Reference Lab',
-    'PORT': 5001,
-    'CONTAINER_NAME': DISCOVERED['CONTAINER_NAME'],  # Used in patch_php()
-    'EDI_BASE': DISCOVERED['EDI_BASE'],  # Now discovered, not hardcoded
-    'DB_CONFIG': DISCOVERED['DB_CONFIG']  # Now discovered, not hardcoded
+    "LAB_NAME": "Ontario Reference Lab",
+    "PORT": 5001,
+    "CONTAINER_NAME": DISCOVERED["CONTAINER_NAME"],
+    "MYSQL_CONTAINER": DISCOVERED["MYSQL_CONTAINER"],
+    "MYSQL_SERVICE": DISCOVERED["MYSQL_SERVICE"],
+    "EDI_BASE": DISCOVERED["EDI_BASE"],
+    "DB_CONFIG": DISCOVERED["DB_CONFIG"],
 }
 
 CATALOG = {
-    '6690-2':  dict(name='WBC', unit='x10^9/L', low=4.0, high=11.0),
-    '718-7':   dict(name='Hemoglobin', unit='g/L', low=120.0, high=175.0),
-    '1558-6':  dict(name='Glucose (Fasting)', unit='mmol/L', low=3.6, high=6.0),
-    '3016-3':  dict(name='TSH', unit='mIU/L', low=0.32, high=4.00),
-    '2093-3':  dict(name='Total Cholesterol', unit='mmol/L', low=0.0, high=5.2),
-    '4548-4':  dict(name='Hemoglobin A1c', unit='%', low=4.0, high=6.0),
+    "6690-2": dict(name="WBC", unit="x10^9/L", low=4.0, high=11.0),
+    "718-7": dict(name="Hemoglobin", unit="g/L", low=120.0, high=175.0),
+    "1558-6": dict(name="Glucose (Fasting)", unit="mmol/L", low=3.6, high=6.0),
+    "3016-3": dict(name="TSH", unit="mIU/L", low=0.32, high=4.00),
+    "2093-3": dict(name="Total Cholesterol", unit="mmol/L", low=0.0, high=5.2),
+    "4548-4": dict(name="Hemoglobin A1c", unit="%", low=4.0, high=6.0),
 }
 
-def get_db():
-    db_config = CONFIG['DB_CONFIG']
 
-    txt = None
-    # If running on host (not in container), try to read from container
-    if not os.path.exists(db_config):
-        print(f"  Config file not found at {db_config}, trying docker exec...")
-        import subprocess
-        try:
-            # Read sqlconf.php from inside the container
-            result = subprocess.run(
-                f"docker exec {CONFIG['CONTAINER_NAME']} cat /var/www/localhost/htdocs/openemr/sites/default/sqlconf.php",
-                shell=True, capture_output=True, text=True, timeout=5
-            )
-            if result.returncode == 0:
-                txt = result.stdout
-                print(f"  ✓ Read config from container")
-            else:
-                print(f"  ✗ docker exec failed: {result.stderr[:100]}")
-                return None
-        except Exception as e:
-            print(f"  ✗ docker exec exception: {str(e)[:100]}")
-            return None
+def _read_sqlconf_text():
+    db_config = CONFIG["DB_CONFIG"]
+    if os.path.exists(db_config):
+        with open(db_config, "r", encoding="utf-8") as handle:
+            return handle.read()
+
+    result = subprocess.run(
+        f"docker exec {CONFIG['CONTAINER_NAME']} cat {db_config}",
+        shell=True,
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(result.stderr.strip() or "could not read sqlconf.php")
+    return result.stdout
+
+
+def _parse_sqlconf(text):
+    def grab(key):
+        match = re.search(
+            rf"\${key}\s*=\s*['\"]([^'\"]*)['\"]",
+            text,
+        )
+        if not match:
+            raise ValueError(f"missing ${key} in sqlconf.php")
+        return match.group(1)
+
+    return {
+        "user": grab("login"),
+        "password": grab("pass"),
+        "database": grab("dbase"),
+    }
+
+
+def _mysql_hosts():
+    hosts = []
+    if os.path.exists("/var/www/localhost/htdocs/openemr/sites/default/sqlconf.php"):
+        hosts.extend([CONFIG["MYSQL_SERVICE"], CONFIG["MYSQL_CONTAINER"], "127.0.0.1", "localhost"])
     else:
-        with open(db_config) as f:
-            txt = f.read()
-            print(f"  ✓ Read config from {db_config}")
+        ip = subprocess.run(
+            f"docker inspect -f '{{{{range.NetworkSettings.Networks}}}}{{{{.IPAddress}}}}{{{{end}}}}' {CONFIG['MYSQL_CONTAINER']}",
+            shell=True,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        ).stdout.strip()
+        if ip:
+            hosts.append(ip)
+        hosts.extend([CONFIG["MYSQL_SERVICE"], CONFIG["MYSQL_CONTAINER"], "127.0.0.1", "localhost"])
 
-    try:
-        g = lambda v: re.search(fr'\${v}\s*=\s*[\'\"]([^\'\"]*)[\'\"]', txt).group(1)
-        user = g('login')
-        pwd = g('pass')
-        db = g('dbase')
-        print(f"  Parsed: user={user}, db={db}")
-    except Exception as e:
-        print(f"  ✗ Parse error: {str(e)[:100]}")
-        return None
+    seen = set()
+    ordered = []
+    for host in hosts:
+        if host and host not in seen:
+            ordered.append(host)
+            seen.add(host)
+    return ordered
 
-    import pymysql
-    for host in ['172.18.0.3', '127.0.0.1', 'openemr-8x-mysql', 'openemr-8x-mysql-1']:
+
+def get_db():
+    sqlconf = _parse_sqlconf(_read_sqlconf_text())
+    last_error = None
+
+    for host in _mysql_hosts():
         try:
-            print(f"  Trying {host}...")
-            conn = pymysql.connect(host=host, user=user, password=pwd, database=db)
-            print(f"  ✓ Connected to {host}")
+            conn = pymysql.connect(
+                host=host,
+                user=sqlconf["user"],
+                password=sqlconf["password"],
+                database=sqlconf["database"],
+                connect_timeout=5,
+                read_timeout=10,
+                write_timeout=10,
+            )
+            print(f"  ✓ Connected to database via {host}")
             return conn
-        except Exception as e:
-            print(f"    Failed: {str(e)[:80]}")
-    return None
+        except Exception as exc:
+            last_error = exc
+
+    raise RuntimeError(f"Could not connect to MySQL: {last_error}")
+
 
 def auto_configure():
-    """Auto-configure OpenEMR to recognize Ontario Lab as a procedure provider.
-
-    When run inside container, has direct access to filesystem and MySQL.
-    """
     print("Configuring OpenEMR database...")
     conn = get_db()
-    if not conn:
-        print("ERROR: Could not connect to database")
-        return
-
     cur = conn.cursor()
-
-    # Build paths dynamically
-    orders_path = f"{CONFIG['EDI_BASE']}/orders"
-    results_path = f"{CONFIG['EDI_BASE']}/inbox"
-
     try:
-        # Insert Ontario Reference Lab provider
+        orders_path = f"{CONFIG['EDI_BASE']}/orders"
+        results_path = f"{CONFIG['EDI_BASE']}/inbox"
+
         cur.execute(
-            'INSERT IGNORE INTO procedure_providers (name, npi, active, direction, protocol, orders_path, results_path) VALUES (%s, %s, 1, %s, %s, %s, %s)',
-            (CONFIG['LAB_NAME'], '123456', 'B', 'FS', orders_path, results_path)
+            """
+            INSERT IGNORE INTO procedure_providers
+              (name, npi, active, direction, protocol, orders_path, results_path)
+            VALUES (%s, %s, 1, %s, %s, %s, %s)
+            """,
+            (CONFIG["LAB_NAME"], "123456", "B", "FS", orders_path, results_path),
         )
 
-        # Get lab_id
-        cur.execute('SELECT ppid FROM procedure_providers WHERE name=%s', (CONFIG['LAB_NAME'],))
-        lab_id = cur.fetchone()[0]
-
-        # Delete existing procedures for this lab
-        cur.execute('DELETE FROM procedure_type WHERE lab_id=%s', (lab_id,))
-
-        # Insert parent group
         cur.execute(
-            'INSERT INTO procedure_type (parent, name, lab_id, procedure_code, procedure_type, activity) VALUES (0, %s, %s, %s, %s, 1)',
-            ('Ontario Labs', lab_id, 'ONT-GRP', 'fgp')
+            "SELECT ppid FROM procedure_providers WHERE name=%s",
+            (CONFIG["LAB_NAME"],),
+        )
+        row = cur.fetchone()
+        if not row:
+            raise RuntimeError("procedure provider insert failed")
+        lab_id = row[0]
+
+        cur.execute("DELETE FROM procedure_type WHERE lab_id=%s", (lab_id,))
+        cur.execute(
+            """
+            INSERT INTO procedure_type
+              (parent, name, lab_id, procedure_code, procedure_type, activity)
+            VALUES (0, %s, %s, %s, %s, 1)
+            """,
+            ("Ontario Labs", lab_id, "ONT-GRP", "fgp"),
         )
         parent_id = cur.lastrowid
 
-        # Insert all lab tests
         for code, data in CATALOG.items():
             cur.execute(
-                'INSERT INTO procedure_type (parent, name, lab_id, procedure_code, procedure_type, units, `range`, activity, procedure_type_name) VALUES (%s, %s, %s, %s, %s, %s, %s, 1, %s)',
-                (parent_id, data['name'], lab_id, code, 'ord', data['unit'], f"{data['low']}-{data['high']}", data['name'])
+                """
+                INSERT INTO procedure_type
+                  (parent, name, lab_id, procedure_code, procedure_type, units, `range`, activity, procedure_type_name)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, 1, %s)
+                """,
+                (
+                    parent_id,
+                    data["name"],
+                    lab_id,
+                    code,
+                    "ord",
+                    data["unit"],
+                    f"{data['low']}-{data['high']}",
+                    data["name"],
+                ),
             )
 
         conn.commit()
-        print("✓ Database configured")
 
-    except Exception as e:
-        print(f"ERROR during database configuration: {str(e)[:200]}")
+        cur.execute(
+            "SELECT COUNT(*) FROM procedure_providers WHERE name=%s",
+            (CONFIG["LAB_NAME"],),
+        )
+        provider_count = cur.fetchone()[0]
+        cur.execute(
+            "SELECT COUNT(*) FROM procedure_type WHERE lab_id=%s AND procedure_type='ord'",
+            (lab_id,),
+        )
+        test_count = cur.fetchone()[0]
+
+        print(f"  ✓ Database configured: {provider_count} provider(s), {test_count} test(s)")
+        if provider_count < 1 or test_count < len(CATALOG):
+            raise RuntimeError(
+                f"Lab verification failed: providers={provider_count}, tests={test_count}, expected_tests={len(CATALOG)}"
+            )
+    except Exception as exc:
         conn.rollback()
+        print(f"ERROR during database configuration: {exc}")
+        raise
     finally:
         cur.close()
         conn.close()
 
-def patch_php():
-    """Industrial-strength patcher with auto-backup and syntax verification
 
-    Now uses discovered container name instead of hardcoding it.
-    This allows mocklab to patch ANY OpenEMR version automatically.
-    """
-    c = CONFIG['CONTAINER_NAME']  # e.g., 'openemr-8x-1' instead of hardcoded 'openemr-openemr-1'
-    t = '/var/www/localhost/htdocs/openemr/interface/forms/procedure_order/common.php'
-    bk = t + '.bak'
-    
-    print("Shields up: Creating backup of core EMR files...")
-    subprocess.run(f"docker exec {c} cp {t} {bk}", shell=True)
-    
-    patch_script = "<?php\n" \
-                   "$f = '/var/www/localhost/htdocs/openemr/interface/forms/procedure_order/common.php';\n" \
-                   "$c = file_get_contents($f);\n" \
-                   "$c = str_replace('if ($_POST[\\\"form_provider_id\\\"] + 0 < 1)', 'if (false && $_POST[\\\"form_provider_id\\\"] + 0 < 1)', $c);\n" \
-                   "$c = str_replace('if ($diag_flag === 0)', 'if (false && $diag_flag === 0)', $c);\n" \
-                   "$c = str_replace('if (!$_POST[\\\"form_date_collected\\\"] && !$_POST[\\\"form_order_psc\\\"])', 'if (false && !$_POST[\\\"form_date_collected\\\"] && !$_POST[\\\"form_order_psc\\\"])', $c);\n" \
-                   "$c = str_replace('if (empty($_POST[\\\"form_billing_type\\\"]))', 'if (false && empty($_POST[\\\"form_billing_type\\\"]))', $c);\n" \
-                   "file_put_contents($f, $c);\n" \
-                   "?>"
-    
-    with open('/tmp/patch_v3.php', 'w') as ps: ps.write(patch_script)
-    
-    print("Applying Frictionless Patch...")
-    os.system(f"docker exec -i {c} php < /tmp/patch_v3.php")
-    
-    print("Verifying integrity...")
-    check = subprocess.run(f"docker exec {c} php -l {t}", shell=True, capture_output=True, text=True)
-    
-    if "No syntax errors detected" in check.stdout:
-        print("✅ Patch verified and stable.")
-    else:
-        print("❌ CRITICAL: Syntax error detected! Rolling back to safety...")
-        subprocess.run(f"docker exec {c} cp {bk} {t}", shell=True)
-        print("✅ System restored to original state.")
+def patch_php():
+    container = CONFIG["CONTAINER_NAME"]
+    target = "/var/www/localhost/htdocs/openemr/interface/forms/procedure_order/common.php"
+    backup = target + ".bak"
+
+    print("Patching OpenEMR validation logic...")
+    subprocess.run(f"docker exec {container} cp {target} {backup}", shell=True, check=False)
+
+    patch_script = """<?php
+$f = '/var/www/localhost/htdocs/openemr/interface/forms/procedure_order/common.php';
+$c = file_get_contents($f);
+$c = str_replace('if ($_POST["form_provider_id"] + 0 < 1)', 'if (false && $_POST["form_provider_id"] + 0 < 1)', $c);
+$c = str_replace('if ($diag_flag === 0)', 'if (false && $diag_flag === 0)', $c);
+$c = str_replace('if (!$_POST["form_date_collected"] && !$_POST["form_order_psc"])', 'if (false && !$_POST["form_date_collected"] && !$_POST["form_order_psc"])', $c);
+$c = str_replace('if (empty($_POST["form_billing_type"]))', 'if (false && empty($_POST["form_billing_type"]))', $c);
+file_put_contents($f, $c);
+?>"""
+
+    patch_path = os.path.join("/tmp", "ontario_lab_patch.php")
+    with open(patch_path, "w", encoding="utf-8") as handle:
+        handle.write(patch_script)
+
+    subprocess.run(f"docker exec -i {container} php < {patch_path}", shell=True, check=False)
+    check = subprocess.run(
+        f"docker exec {container} php -l {target}",
+        shell=True,
+        capture_output=True,
+        text=True,
+    )
+    if "No syntax errors detected" not in check.stdout:
+        subprocess.run(f"docker exec {container} cp {backup} {target}", shell=True, check=False)
+        raise RuntimeError("PHP patch failed and was rolled back")
+
 
 def process_logic():
-    """Process lab orders from EDI /orders directory and generate results in /inbox.
+    orders_dir = f"{CONFIG['EDI_BASE']}/orders"
+    inbox_dir = f"{CONFIG['EDI_BASE']}/inbox"
 
-    Works from both host and container by using docker exec when needed.
-    """
-    import subprocess
-
-    od = f"{CONFIG['EDI_BASE']}/orders"
-    rd = f"{CONFIG['EDI_BASE']}/inbox"
-
-    # If running on host, use docker exec to list files in container
     try:
-        if not os.path.exists(od):
-            # Get file list via docker exec
+        if os.path.exists(orders_dir):
+            files = [name for name in os.listdir(orders_dir) if name.endswith(".txt")]
+        else:
             result = subprocess.run(
-                f"docker exec {DISCOVERED['CONTAINER_NAME']} ls {od} 2>/dev/null || true",
+                f"docker exec {CONFIG['CONTAINER_NAME']} ls {orders_dir} 2>/dev/null || true",
                 shell=True,
                 capture_output=True,
-                text=True
+                text=True,
             )
-            files = [f for f in result.stdout.strip().split('\n') if f.endswith('.txt')]
-        else:
-            files = [f for f in os.listdir(od) if f.endswith('.txt')]
-    except:
+            files = [name for name in result.stdout.splitlines() if name.endswith(".txt")]
+    except Exception:
         return
 
     for fname in files:
+        order_path = os.path.join(orders_dir, fname)
         try:
-            order_path = os.path.join(od, fname)
-
-            # Read order file
             if os.path.exists(order_path):
-                with open(order_path, 'r') as f:
-                    h = f.read()
+                with open(order_path, "r", encoding="utf-8") as handle:
+                    raw = handle.read()
             else:
-                # Read from container
                 result = subprocess.run(
-                    f"docker exec {DISCOVERED['CONTAINER_NAME']} cat {order_path}",
+                    f"docker exec {CONFIG['CONTAINER_NAME']} cat {order_path}",
                     shell=True,
                     capture_output=True,
-                    text=True
+                    text=True,
                 )
                 if result.returncode != 0:
                     continue
-                h = result.stdout
+                raw = result.stdout
 
-            # Parse order
-            pid = next((l for l in h.splitlines() if l.startswith('PID|')), 'PID|1||||Unk^Pat||19800101|M')
-            msh = h.splitlines()[0].split('|') if h.splitlines() else []
-            ctl = msh[9] if len(msh) > 9 else 'SIM'
-            ts = datetime.now().strftime('%Y%m%d%H%M%S')
+            lines = raw.splitlines()
+            msh = lines[0].split("|") if lines else []
+            control_id = msh[9] if len(msh) > 9 else "SIM"
+            pid = next((line for line in lines if line.startswith("PID|")), "PID|1||||Unk^Pat||19800101|M")
+            timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
 
-            # Generate result
-            res = f'MSH|^~\\\\&|ONTARIOLAB|LAB|OPENEMR|CLINIC|{ts}||ORU^R01|{ctl}|D|2.3\n{pid}\n'
-            for s, c in re.findall(r'OBR\|(\d+)\|.*?\|\|(.*?)\^', h):
-                res += f'OBR|{s}|{ctl}||{c}^|||{ts}|||||||||||F\n'
-                m = CATALOG.get(c, {'name': 'Test', 'unit': 'units', 'low': 0, 'high': 100})
-                v = round(random.uniform(m['low'], m['high']), 1)
-                res += f'OBX|1|NM|{c}^{m["name"]}^LN||{v}|{m["unit"]}|{m["low"]}-{m["high"]}|N|||F\n'
-
-            # Write result
-            result_path = os.path.join(rd, f'RES_{fname}')
-            if os.path.exists(rd):
-                with open(result_path, 'w') as w:
-                    w.write(res)
-            else:
-                # Write to container
-                subprocess.run(
-                    f"docker exec {DISCOVERED['CONTAINER_NAME']} bash -c 'cat > {result_path}' << 'RESEND'\n{res}\nRESEND",
-                    shell=True
+            response = f"MSH|^~\\&|ONTARIOLAB|LAB|OPENEMR|CLINIC|{timestamp}||ORU^R01|{control_id}|D|2.3\n{pid}\n"
+            for sequence, code in re.findall(r"OBR\|(\d+)\|.*?\|\|(.*?)\^", raw):
+                response += f"OBR|{sequence}|{control_id}||{code}^|||{timestamp}|||||||||||F\n"
+                meta = CATALOG.get(code, {"name": "Test", "unit": "units", "low": 0, "high": 100})
+                value = round(random.uniform(meta["low"], meta["high"]), 1)
+                response += (
+                    f'OBX|1|NM|{code}^{meta["name"]}^LN||{value}|{meta["unit"]}|'
+                    f'{meta["low"]}-{meta["high"]}|N|||F\n'
                 )
 
-            # Delete order
+            result_path = os.path.join(inbox_dir, f"RES_{fname}")
+            if os.path.exists(inbox_dir):
+                with open(result_path, "w", encoding="utf-8") as handle:
+                    handle.write(response)
+            else:
+                subprocess.run(
+                    f"docker exec {CONFIG['CONTAINER_NAME']} bash -lc 'cat > {result_path}'",
+                    input=response,
+                    text=True,
+                    shell=True,
+                    check=False,
+                )
+
             if os.path.exists(order_path):
                 os.remove(order_path)
             else:
-                subprocess.run(
-                    f"docker exec {DISCOVERED['CONTAINER_NAME']} rm {order_path}",
-                    shell=True
-                )
-        except:
+                subprocess.run(f"docker exec {CONFIG['CONTAINER_NAME']} rm {order_path}", shell=True, check=False)
+        except Exception:
             pass
+
 
 def watcher():
     while True:
-        process_logic(); time.sleep(5)
+        process_logic()
+        time.sleep(5)
+
 
 app = Flask(__name__)
-@app.route('/')
-def home(): return '<h1>Ontario Lab Active ✅</h1>'
 
-if __name__ == '__main__':
-    if '--install' in sys.argv:
+
+@app.route("/")
+def home():
+    return "<h1>Ontario Lab Active ✅</h1>"
+
+
+if __name__ == "__main__":
+    if "--install" in sys.argv:
         print("\n🚀 MOCKLAB UNIVERSAL INSTALL\n")
 
-        # Check if we're running inside the container
-        in_container = os.path.exists('/var/www/localhost/htdocs/openemr/sites/default/sqlconf.php')
+        in_container = os.path.exists("/var/www/localhost/htdocs/openemr/sites/default/sqlconf.php")
 
-        if not in_container:
-            print("Installing (using docker exec for database operations)...\n")
-            import subprocess
-
-            container_name = DISCOVERED['CONTAINER_NAME']
-            mysql_container = DISCOVERED['MYSQL_CONTAINER']
-
-            # Create EDI directories via docker exec
-            print("  1. Creating EDI directories...")
-            for d in ['orders', 'inbox']:
-                subprocess.run(
-                    f"docker exec {container_name} mkdir -p {CONFIG['EDI_BASE']}/{d}",
-                    shell=True,
-                    check=False
-                )
-
-            # Configure OpenEMR database via docker exec
-            print("  2. Configuring OpenEMR database...")
-
-            orders_path = f"{CONFIG['EDI_BASE']}/orders"
-            results_path = f"{CONFIG['EDI_BASE']}/inbox"
-
-            try:
-                # Step 1: Insert provider
-                sql1 = f"INSERT IGNORE INTO procedure_providers (name, npi, active, direction, protocol, orders_path, results_path) VALUES ('Ontario Reference Lab', '123456', 1, 'B', 'FS', '{orders_path}', '{results_path}');"
-                subprocess.run(
-                    f"docker exec {mysql_container} mysql -uopenemr -popenemr openemr -e \"{sql1}\"",
-                    shell=True,
-                    check=False
-                )
-
-                # Step 2: Get lab_id and insert parent
-                result = subprocess.run(
-                    f"docker exec {mysql_container} mysql -uopenemr -popenemr openemr -e \"SELECT ppid FROM procedure_providers WHERE name='Ontario Reference Lab';\"",
-                    shell=True,
-                    capture_output=True,
-                    text=True
-                )
-                lab_id = result.stdout.strip().split('\n')[-1] if result.returncode == 0 else '1'
-
-                sql2 = f"INSERT INTO procedure_type (parent, name, lab_id, procedure_code, procedure_type, activity) VALUES (0, 'Ontario Labs', {lab_id}, 'ONT-GRP', 'fgp', 1);"
-                subprocess.run(
-                    f"docker exec {mysql_container} mysql -uopenemr -popenemr openemr -e \"{sql2}\"",
-                    shell=True,
-                    check=False
-                )
-
-                # Step 3: Get parent_id and insert all tests
-                result = subprocess.run(
-                    f"docker exec {mysql_container} mysql -uopenemr -popenemr openemr -e \"SELECT procedure_type_id FROM procedure_type WHERE procedure_code='ONT-GRP';\"",
-                    shell=True,
-                    capture_output=True,
-                    text=True
-                )
-                parent_id = result.stdout.strip().split('\n')[-1] if result.returncode == 0 else '1'
-
-                # Insert each test
-                for code, data in CATALOG.items():
-                    sql = f"INSERT INTO procedure_type (parent, name, lab_id, procedure_code, procedure_type, units, `range`, activity, procedure_type_name) VALUES ({parent_id}, '{data['name']}', {lab_id}, '{code}', 'ord', '{data['unit']}', '{data['low']}-{data['high']}', 1, '{data['name']}');"
-                    subprocess.run(
-                        f"docker exec {mysql_container} mysql -uopenemr -popenemr openemr -e \"{sql}\"",
-                        shell=True,
-                        check=False
-                    )
-
-                print("  ✓ Database configured")
-            except Exception as e:
-                print(f"  ✗ Database configuration error: {str(e)[:100]}")
-
-            # Patch PHP via docker exec
-            print("  3. Patching validation logic...")
-            patch_php()
-
-            print('\n🎉 Turnkey Install Complete.')
-            print(f"Mocklab is now configured for OpenEMR in {container_name}")
-            print("To start the lab simulator, run: python3 ontario_lab_turnkey.py")
-            sys.exit(0)
-
+        print("  1. Creating EDI directories...")
+        if in_container:
+            for folder in ("orders", "inbox"):
+                os.makedirs(f"{CONFIG['EDI_BASE']}/{folder}", exist_ok=True)
         else:
-            # Running inside container - do the actual installation
-            print("Setup sequence:")
-            print(f"  1. Create EDI directories in {CONFIG['EDI_BASE']}")
-            print(f"  2. Auto-configure OpenEMR database")
-            print(f"  3. Patch validation logic\n")
+            for folder in ("orders", "inbox"):
+                subprocess.run(
+                    f"docker exec {CONFIG['CONTAINER_NAME']} mkdir -p {CONFIG['EDI_BASE']}/{folder}",
+                    shell=True,
+                    check=False,
+                )
 
-            # Create EDI directories (/orders and /inbox)
-            for s in ['orders', 'inbox']:
-                os.makedirs(f"{CONFIG['EDI_BASE']}/{s}", exist_ok=True)
-            print("✓ EDI directories created")
+        print("  2. Configuring OpenEMR database...")
+        auto_configure()
 
-            # Configure OpenEMR database (adds lab provider and procedure types)
-            auto_configure()
+        print("  3. Patching validation logic...")
+        patch_php()
 
-            # Patch validation logic (allows orders without all fields)
-            patch_php()
+        print("\n🎉 Turnkey install complete.")
+        print(f"Mocklab is now configured for OpenEMR in {CONFIG['CONTAINER_NAME']}")
+        print("The simulator container starts automatically with Docker Compose.")
+        sys.exit(0)
 
-            print('\n🎉 Turnkey Install Complete.')
-            print(f"Mocklab is now configured for OpenEMR in {DISCOVERED['CONTAINER_NAME']}")
-            print("To start the lab simulator, run: python3 ontario_lab_turnkey.py")
-
-    else:
-        print(f"\n🧪 Starting Ontario Lab Simulator on port {CONFIG['PORT']}...")
-        print(f"   Container: {DISCOVERED['CONTAINER_NAME']}")
-        print(f"   Monitoring: {CONFIG['EDI_BASE']}/orders (via docker exec)")
-        print(f"   Writing results to: {CONFIG['EDI_BASE']}/inbox\n")
-
-        # Start background watcher (monitors /orders every 5 seconds)
-        threading.Thread(target=watcher, daemon=True).start()
-
-        # Run Flask server on port 5001
-        app.run(host='0.0.0.0', port=CONFIG['PORT'])
+    print(f"\n🧪 Starting Ontario Lab Simulator on port {CONFIG['PORT']}...")
+    print(f"   Container: {CONFIG['CONTAINER_NAME']}")
+    print(f"   Monitoring: {CONFIG['EDI_BASE']}/orders")
+    print(f"   Writing results to: {CONFIG['EDI_BASE']}/inbox\n")
+    threading.Thread(target=watcher, daemon=True).start()
+    app.run(host="0.0.0.0", port=CONFIG["PORT"])
