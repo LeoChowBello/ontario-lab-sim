@@ -93,6 +93,10 @@ if "Configure OpenEMR database via docker exec" in text:
     new_text, count = re.subn(pattern, replacement, text, count=1, flags=re.S)
     if count != 1:
         raise SystemExit("Could not patch turnkey installer block")
+    new_text = new_text.replace(
+        '            print("To start the lab simulator, run: python3 ontario_lab_turnkey.py")',
+        '            print("  4. The simulator container is already running.")'
+    )
     path.write_text(new_text)
 PY
 
