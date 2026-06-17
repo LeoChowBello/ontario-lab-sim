@@ -29,6 +29,13 @@ curl -sSL https://raw.githubusercontent.com/LeoChowBello/ontario-lab-sim/main/in
 
 If you are installing on a remote server, the script prints the correct access URL at the end.
 
+## Sudo note
+
+- The installer first checks whether the needed Python modules are already installed.
+- If they are, it skips package installation and does not need your Ubuntu password.
+- If they are missing, it only uses `sudo` when passwordless access is available.
+- If `sudo` needs a password, install the Python modules once as the server admin, then rerun the installer.
+
 ## If something goes wrong
 
 - `Docker Compose not found`: install Docker and Docker Compose first.
@@ -41,3 +48,4 @@ If you are installing on a remote server, the script prints the correct access U
 - It does not assume the repo was cloned first.
 - It downloads the files it needs automatically.
 - It explains the login credentials and next steps after installation.
+- It avoids prompting for a sudo password when the server already has the needed Python packages.
