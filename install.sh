@@ -111,7 +111,15 @@ echo ""
 
 # Detect environment and get the right URL
 if [ -z "${DISPLAY:-}" ]; then
-    PUBLIC_IP=$(curl -s --connect-timeout 1 http://169.254.169.254/latest/meta-data/public-ipv4 2>/dev/null || true)
+    PUBLIC_IP=$(python3 - <<'PY'
+import urllib.request
+try:
+    with urllib.request.urlopen("http://169.254.169.254/latest/meta-data/public-ipv4", timeout=1) as response:
+        print(response.read().decode().strip())
+except Exception:
+    pass
+PY
+)
 
     if [ -n "$PUBLIC_IP" ]; then
         ACCESS_URL="http://$PUBLIC_IP:8082"
