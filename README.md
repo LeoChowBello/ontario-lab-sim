@@ -55,6 +55,19 @@ This simulator provides a mock Ontario Reference Lab that integrates with OpenEM
 - LOINC is the shared code system for lab tests and observations.
 - It helps different systems agree that the same lab name means the same thing.
 
+## Lab Test Menu
+
+The simulator currently loads these lab tests into OpenEMR:
+
+- `6690-2` WBC
+- `718-7` Hemoglobin
+- `1558-6` Glucose (Fasting)
+- `3016-3` TSH
+- `2093-3` Total Cholesterol
+- `4548-4` Hemoglobin A1c
+
+When students create the order inside `Encounter -> Orders -> Procedure Orders`, these tests should appear in the search menu.
+
 ## For the Interop Team
 
 **Stage 1-2 (HL7 v2 Integration):** Understand how Mocklab simulates Ontario OLIS using file-based HL7 v2 exchange:
@@ -72,6 +85,6 @@ This simulator provides a mock Ontario Reference Lab that integrates with OpenEM
 
 **For developers:** See [UNIVERSAL_MOCKLAB.md](UNIVERSAL_MOCKLAB.md) to understand how mocklab auto-discovers configuration from your docker-compose file.
 
-This makes mocklab work on any OpenEMR version (7.0.2, 8.0.x, 9.0, etc.) without code changes—an important pattern for building production-grade interop tools.
+This makes mocklab work on any OpenEMR version (7.0.2, 8.0.x, 9.0, etc.) without code changes - an important pattern for building production-grade interop tools.
 
-**Test Status:** See [TEST_RESULTS.md](TEST_RESULTS.md) for validation results on OpenEMR 8.0.x. ✅ Config discovery verified to work.
+**Test Status:** See [TEST_RESULTS.md](TEST_RESULTS.md) for validation results on OpenEMR 8.0.x. Config discovery verified to work.
