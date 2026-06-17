@@ -56,6 +56,16 @@ These diagnosis codes are seeded into OpenEMR so students can select a primary d
 - `Z13.1` Encounter for screening for diabetes mellitus
 - `Z13.220` Encounter for screening for lipoid disorders
 
+## Chart diagnosis history
+
+The installer also backfills the patient problem list with ICD-10 links so the diagnosis picker is not empty on first use. That means the `Primary Diagnosis` field in the order form should auto-fill from the chart history, and the history popup should show real entries students can select.
+
+It also prepares the outgoing EDI orders folder so OpenEMR can write the HL7 file during transmit without a permissions error.
+
+For the student sandbox, the collection-date and billing checks are relaxed so first-time users can complete the lab order flow without getting blocked by form setup details.
+
+After a successful transmit, the simulator also triggers OpenEMR's result ingest path. Students should then open `Procedures -> Pending Review -> Procedure Results` to see the lab result appear in the normal OpenEMR workflow.
+
 ## Student lab order path
 
 When you create the lab order for the first time, use this path inside the chart:
@@ -90,5 +100,6 @@ When you create the lab order for the first time, use this path inside the chart
 - It verifies that the lab data was actually inserted before saying the install is complete.
 - It tells students which lab tests are available before they open the order screen.
 - It tells students which diagnosis codes are available before they open the order screen.
+- It backfills chart diagnosis history so the diagnosis picker is usable right away.
 - It explains the login credentials and next steps after installation.
 - It avoids prompting for a sudo password when the server already has the needed Python packages.
