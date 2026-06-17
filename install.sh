@@ -78,6 +78,24 @@ download_file "$REPO_BASE/ontario_lab_turnkey.py" "$WORKDIR/ontario_lab_turnkey.
 
 cd "$WORKDIR"
 
+python3 - "$WORKDIR/ontario_lab_turnkey.py" <<'PY'
+from pathlib import Path
+import re
+import sys
+
+path = Path(sys.argv[1])
+text = path.read_text()
+
+pattern = r"\n            # Configure OpenEMR database via docker exec\n.*?\n            # Patch PHP via docker exec\n"
+replacement = "\n            # Configure OpenEMR database using the normal parameterized path\n            print(\"  2. Configuring OpenEMR database...\")\n            auto_configure()\n\n            # Patch PHP via docker exec\n"
+
+if "Configure OpenEMR database via docker exec" in text:
+    new_text, count = re.subn(pattern, replacement, text, count=1, flags=re.S)
+    if count != 1:
+        raise SystemExit("Could not patch turnkey installer block")
+    path.write_text(new_text)
+PY
+
 export MOCKLAB_PORT="$(pick_mocklab_port)"
 if [ "$MOCKLAB_PORT" = "5002" ]; then
     echo "   Port 5001 is already in use, so the new simulator will use port 5002."
