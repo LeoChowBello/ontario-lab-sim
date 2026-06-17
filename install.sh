@@ -1,4 +1,5 @@
 #!/bin/bash
+set -euo pipefail
 
 echo ""
 echo "============================================"
@@ -6,10 +7,38 @@ echo "  Ontario Lab Mocklab - Universal Installer"
 echo "============================================"
 echo ""
 
-# Detect Docker Compose command (supports both old and new syntax)
-if command -v docker-compose > /dev/null 2>&1; then
+REPO_BASE="https://raw.githubusercontent.com/LeoChowBello/ontario-lab-sim/main"
+WORKDIR="$(mktemp -d "${TMPDIR:-/tmp}/ontario-lab-sim.XXXXXX")"
+
+cleanup() {
+    rm -rf "$WORKDIR"
+}
+trap cleanup EXIT
+
+download_file() {
+    local url="$1"
+    local dest="$2"
+
+    if ! command -v python3 >/dev/null 2>&1; then
+        echo "ERROR: python3 is required to download the installer files."
+        exit 1
+    fi
+
+    python3 - "$url" "$dest" <<'PY'
+from sys import argv
+from urllib.request import urlopen
+
+url = argv[1]
+dest = argv[2]
+
+with urlopen(url) as response, open(dest, 'wb') as fh:
+    fh.write(response.read())
+PY
+}
+
+if command -v docker-compose >/dev/null 2>&1; then
     DOCKER_COMPOSE_CMD="docker-compose"
-elif command -v docker > /dev/null 2>&1 && docker compose version > /dev/null 2>&1; then
+elif command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
     DOCKER_COMPOSE_CMD="docker compose"
 else
     echo "ERROR: Docker Compose not found."
@@ -17,46 +46,72 @@ else
     exit 1
 fi
 
-echo "Step 1: Starting Docker containers..."
+if ! docker info >/dev/null 2>&1; then
+    echo "ERROR: Docker is not running. Start Docker and try again."
+    exit 1
+fi
+
+echo "Step 0: Preparing a clean workspace..."
+echo "   Downloading the lab files into: $WORKDIR"
+
+download_file "$REPO_BASE/docker-compose-8.0.x.yml" "$WORKDIR/docker-compose-8.0.x.yml"
+download_file "$REPO_BASE/Dockerfile" "$WORKDIR/Dockerfile"
+download_file "$REPO_BASE/config_discovery.py" "$WORKDIR/config_discovery.py"
+download_file "$REPO_BASE/ontario_lab_turnkey.py" "$WORKDIR/ontario_lab_turnkey.py"
+
+cd "$WORKDIR"
+
+echo ""
+echo "Step 1: Installing host dependencies..."
+sudo apt-get update -qq
+sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq python3-pip python3-flask python3-pymysql >/dev/null
+
+echo ""
+echo "Step 2: Starting Docker containers..."
 echo "   - OpenEMR database (MySQL)"
 echo "   - OpenEMR web application"
 echo "   - Lab simulator"
 echo ""
 
-$DOCKER_COMPOSE_CMD -f docker-compose-8.0.x.yml up -d
+$DOCKER_COMPOSE_CMD -f docker-compose-8.0.x.yml up -d --build
 
-if [ $? -ne 0 ]; then
-    echo "ERROR: Docker Compose failed. Make sure Docker is running."
+echo ""
+echo "Step 3: Waiting for OpenEMR to become healthy..."
+status="starting"
+for attempt in $(seq 1 60); do
+    status=$(docker inspect -f '{{.State.Health.Status}}' openemr-8x-1 2>/dev/null || echo starting)
+    echo "   [$attempt/60] OpenEMR status: $status"
+    if [ "$status" = "healthy" ]; then
+        break
+    fi
+    sleep 10
+done
+
+if [ "$status" != "healthy" ]; then
+    echo "ERROR: OpenEMR did not become healthy."
+    echo "Check the container logs with: $DOCKER_COMPOSE_CMD -f docker-compose-8.0.x.yml logs --tail=100"
     exit 1
 fi
 
 echo ""
-echo "Waiting 60 seconds for services to initialize..."
-sleep 60
-
+echo "Step 4: Configuring the database and installing tests..."
 echo ""
-echo "Step 2: Configuring database and installing tests..."
-echo ""
-
 python3 ontario_lab_turnkey.py --install
 
-if [ $? -ne 0 ]; then
-    echo "ERROR: Installation failed."
-    exit 1
-fi
-
 echo ""
 echo "============================================"
-echo "  ✅ Installation Complete!"
+echo "  Installation Complete"
 echo "============================================"
 echo ""
-echo "Your healthcare IT lab is now running."
+echo "OpenEMR login:"
+echo "  URL:      http://localhost:8082"
+echo "  Username: admin"
+echo "  Password: pass"
 echo ""
 
 # Detect environment and get the right URL
-if [ -z "$DISPLAY" ]; then
-    # Headless environment (AWS, remote server, etc.)
-    PUBLIC_IP=$(curl -s --connect-timeout 1 http://169.254.169.254/latest/meta-data/public-ipv4 2>/dev/null)
+if [ -z "${DISPLAY:-}" ]; then
+    PUBLIC_IP=$(curl -s --connect-timeout 1 http://169.254.169.254/latest/meta-data/public-ipv4 2>/dev/null || true)
 
     if [ -n "$PUBLIC_IP" ]; then
         ACCESS_URL="http://$PUBLIC_IP:8082"
@@ -68,12 +123,11 @@ if [ -z "$DISPLAY" ]; then
     echo "Access OpenEMR from your laptop:"
     echo "  $ACCESS_URL"
 else
-    # Local GUI environment
     ACCESS_URL="http://localhost:8082"
     echo "Opening browser..."
-    if command -v xdg-open > /dev/null; then
+    if command -v xdg-open >/dev/null 2>&1; then
         xdg-open "$ACCESS_URL" 2>/dev/null &
-    elif command -v open > /dev/null; then
+    elif command -v open >/dev/null 2>&1; then
         open "$ACCESS_URL" 2>/dev/null &
     fi
 fi
@@ -86,8 +140,8 @@ echo "1. OPEN YOUR BROWSER"
 echo "   Go to: $ACCESS_URL"
 echo ""
 echo "2. LOGIN"
-echo "   Enter your OpenEMR login credentials"
-echo "   (Check docker-compose-8.0.x.yml if you need to verify them)"
+echo "   Username: admin"
+echo "   Password: pass"
 echo ""
 echo "3. CREATE A TEST PATIENT"
 echo "   - Click 'Patients' menu"
