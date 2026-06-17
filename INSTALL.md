@@ -30,6 +30,32 @@ curl -sSL https://raw.githubusercontent.com/LeoChowBello/ontario-lab-sim/main/in
 
 If you are installing on a remote server, the script prints the correct access URL at the end.
 
+## Available lab tests
+
+These tests are loaded into the simulator and should appear in the Procedure Orders search menu:
+
+- `6690-2` WBC
+- `718-7` Hemoglobin
+- `1558-6` Glucose (Fasting)
+- `3016-3` TSH
+- `2093-3` Total Cholesterol
+- `4548-4` Hemoglobin A1c
+
+## Available diagnosis codes
+
+These diagnosis codes are seeded into OpenEMR so students can select a primary diagnosis for lab work:
+
+- `R79.89` Other specified abnormal findings of blood chemistry
+- `D64.9` Anemia, unspecified
+- `E11.9` Type 2 diabetes mellitus without complications
+- `E78.5` Hyperlipidemia, unspecified
+- `E03.9` Hypothyroidism, unspecified
+- `R73.03` Prediabetes
+- `R53.83` Other fatigue
+- `N18.9` Chronic kidney disease, unspecified
+- `Z13.1` Encounter for screening for diabetes mellitus
+- `Z13.220` Encounter for screening for lipoid disorders
+
 ## Student lab order path
 
 When you create the lab order for the first time, use this path inside the chart:
@@ -62,5 +88,7 @@ When you create the lab order for the first time, use this path inside the chart
 - It downloads the files it needs automatically.
 - It keeps the screen readable while OpenEMR starts.
 - It verifies that the lab data was actually inserted before saying the install is complete.
+- It tells students which lab tests are available before they open the order screen.
+- It tells students which diagnosis codes are available before they open the order screen.
 - It explains the login credentials and next steps after installation.
 - It avoids prompting for a sudo password when the server already has the needed Python packages.
