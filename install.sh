@@ -36,6 +36,15 @@ with urlopen(url) as response, open(dest, 'wb') as fh:
 PY
 }
 
+python_has_module() {
+    python3 - "$1" <<'PY' >/dev/null 2>&1
+import importlib.util
+import sys
+module = sys.argv[1]
+sys.exit(0 if importlib.util.find_spec(module) else 1)
+PY
+}
+
 if command -v docker-compose >/dev/null 2>&1; then
     DOCKER_COMPOSE_CMD="docker-compose"
 elif command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
@@ -62,9 +71,33 @@ download_file "$REPO_BASE/ontario_lab_turnkey.py" "$WORKDIR/ontario_lab_turnkey.
 cd "$WORKDIR"
 
 echo ""
-echo "Step 1: Installing host dependencies..."
-sudo apt-get update -qq
-sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq python3-pip python3-flask python3-pymysql >/dev/null
+echo "Step 1: Checking host Python dependencies..."
+missing_deps=0
+for module in flask pymysql; do
+    if python_has_module "$module"; then
+        echo "   - $module: installed"
+    else
+        echo "   - $module: missing"
+        missing_deps=1
+    fi
+done
+
+if [ "$missing_deps" -ne 0 ]; then
+    if sudo -n true >/dev/null 2>&1; then
+        echo ""
+        echo "Installing missing Python dependencies with sudo..."
+        sudo apt-get update -qq
+        sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq python3-pip python3-flask python3-pymysql >/dev/null
+    else
+        echo ""
+        echo "ERROR: Python dependencies are missing and sudo is not available without a password."
+        echo "Please install python3-flask and python3-pymysql as the server admin, then rerun the installer."
+        exit 1
+    fi
+else
+    echo ""
+    echo "Python dependencies already present. Skipping package install."
+fi
 
 echo ""
 echo "Step 2: Starting Docker containers..."
