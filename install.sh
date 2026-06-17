@@ -1,11 +1,11 @@
 #!/bin/bash
 set -euo pipefail
 
-echo ""
+echo
 echo "============================================"
 echo "  Ontario Lab Mocklab - Universal Installer"
 echo "============================================"
-echo ""
+echo
 
 REPO_BASE="https://raw.githubusercontent.com/LeoChowBello/ontario-lab-sim/main"
 WORKDIR="$(mktemp -d "${TMPDIR:-/tmp}/ontario-lab-sim.XXXXXX")"
@@ -31,7 +31,7 @@ from urllib.request import urlopen
 url = argv[1]
 dest = argv[2]
 
-with urlopen(url) as response, open(dest, 'wb') as fh:
+with urlopen(url) as response, open(dest, "wb") as fh:
     fh.write(response.read())
 PY
 }
@@ -40,6 +40,7 @@ python_has_module() {
     python3 - "$1" <<'PY' >/dev/null 2>&1
 import importlib.util
 import sys
+
 module = sys.argv[1]
 sys.exit(0 if importlib.util.find_spec(module) else 1)
 PY
@@ -51,6 +52,20 @@ pick_mocklab_port() {
     else
         echo 5001
     fi
+}
+
+render_progress() {
+    local current="$1"
+    local total="$2"
+    local status="$3"
+    local width=24
+    local filled=$((current * width / total))
+    local empty=$((width - filled))
+    local pct=$((current * 100 / total))
+    local bar
+    bar="$(printf '%*s' "$filled" '' | tr ' ' '#')"
+    bar="$bar$(printf '%*s' "$empty" '' | tr ' ' '-')"
+    printf '\r   [%s] %3d%% OpenEMR status: %s' "$bar" "$pct" "$status"
 }
 
 if command -v docker-compose >/dev/null 2>&1; then
@@ -77,29 +92,6 @@ download_file "$REPO_BASE/config_discovery.py" "$WORKDIR/config_discovery.py"
 download_file "$REPO_BASE/ontario_lab_turnkey.py" "$WORKDIR/ontario_lab_turnkey.py"
 
 cd "$WORKDIR"
-
-python3 - "$WORKDIR/ontario_lab_turnkey.py" <<'PY'
-from pathlib import Path
-import re
-import sys
-
-path = Path(sys.argv[1])
-text = path.read_text()
-
-pattern = r"\n            # Configure OpenEMR database via docker exec\n.*?\n            # Patch PHP via docker exec\n"
-replacement = "\n            # Configure OpenEMR database using the normal parameterized path\n            print(\"  2. Configuring OpenEMR database...\")\n            auto_configure()\n\n            # Patch PHP via docker exec\n"
-
-if "Configure OpenEMR database via docker exec" in text:
-    new_text, count = re.subn(pattern, replacement, text, count=1, flags=re.S)
-    if count != 1:
-        raise SystemExit("Could not patch turnkey installer block")
-    new_text = new_text.replace(
-        '            print("To start the lab simulator, run: python3 ontario_lab_turnkey.py")',
-        '            print("  4. The simulator container is already running.")'
-    )
-    path.write_text(new_text)
-PY
-
 export MOCKLAB_PORT="$(pick_mocklab_port)"
 if [ "$MOCKLAB_PORT" = "5002" ]; then
     echo "   Port 5001 is already in use, so the new simulator will use port 5002."
@@ -107,7 +99,7 @@ else
     echo "   Using simulator port 5001."
 fi
 
-echo ""
+echo
 echo "Step 1: Checking host Python dependencies..."
 missing_deps=0
 for module in flask pymysql; do
@@ -121,69 +113,101 @@ done
 
 if [ "$missing_deps" -ne 0 ]; then
     if sudo -n true >/dev/null 2>&1; then
-        echo ""
+        echo
         echo "Installing missing Python dependencies with sudo..."
         sudo apt-get update -qq
         sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq python3-pip python3-flask python3-pymysql >/dev/null
     else
-        echo ""
+        echo
         echo "ERROR: Python dependencies are missing and sudo is not available without a password."
         echo "Please install python3-flask and python3-pymysql as the server admin, then rerun the installer."
         exit 1
     fi
 else
-    echo ""
+    echo
     echo "Python dependencies already present. Skipping package install."
 fi
 
-echo ""
+echo
 echo "Step 2: Clearing any stale mocklab and 8.x containers..."
 docker rm -f mocklab-1 openemr-8x-1 openemr-8x-mysql-1 >/dev/null 2>&1 || true
 
-echo ""
+echo
 echo "Step 3: Starting Docker containers..."
 echo "   - OpenEMR database (MySQL)"
 echo "   - OpenEMR web application"
 echo "   - Lab simulator"
-echo ""
+echo "   Building and starting services..."
 
-$DOCKER_COMPOSE_CMD -f docker-compose-8.0.x.yml up -d --build
+compose_log="$WORKDIR/compose.log"
+compose_exit="$WORKDIR/compose.exit"
+rm -f "$compose_log" "$compose_exit"
 
-echo ""
+( $DOCKER_COMPOSE_CMD -f docker-compose-8.0.x.yml up -d --build >"$compose_log" 2>&1; echo $? >"$compose_exit" ) &
+compose_pid=$!
+spinner='|/-\'
+spinner_index=0
+
+while kill -0 "$compose_pid" 2>/dev/null; do
+    frame="${spinner:$((spinner_index % 4)):1}"
+    printf '\r   Building and starting services %s' "$frame"
+    sleep 0.2
+    spinner_index=$((spinner_index + 1))
+done
+
+wait "$compose_pid" || true
+compose_status="$(cat "$compose_exit" 2>/dev/null || echo 1)"
+
+if [ "$compose_status" -ne 0 ]; then
+    echo
+    echo "ERROR: Docker Compose failed."
+    echo "Here are the last lines from the startup log:"
+    tail -n 40 "$compose_log" || cat "$compose_log"
+    exit 1
+fi
+
+printf '\r   Building and starting services complete.      \n'
+
+echo
 echo "Step 4: Waiting for OpenEMR to become healthy..."
+echo "   This can take a few minutes. The bar stays on one line so the screen stays readable."
+
 status="starting"
-for attempt in $(seq 1 60); do
-    status=$(docker inspect -f '{{.State.Health.Status}}' openemr-8x-1 2>/dev/null || echo starting)
-    echo "   [$attempt/60] OpenEMR status: $status"
+max_attempts=60
+for attempt in $(seq 1 "$max_attempts"); do
+    status="$(docker inspect -f '{{.State.Health.Status}}' openemr-8x-1 2>/dev/null || echo starting)"
     if [ "$status" = "healthy" ]; then
+        render_progress "$max_attempts" "$max_attempts" "$status"
+        echo
         break
     fi
-    sleep 10
+    render_progress "$attempt" "$max_attempts" "$status"
+    sleep 5
 done
 
 if [ "$status" != "healthy" ]; then
+    echo
     echo "ERROR: OpenEMR did not become healthy."
     echo "Check the container logs with: $DOCKER_COMPOSE_CMD -f docker-compose-8.0.x.yml logs --tail=100"
     exit 1
 fi
 
-echo ""
-echo "Step 5: Configuring the database and installing tests..."
-echo ""
+echo
+echo "Step 5: Configuring the database and verifying lab tests..."
+echo
 python3 ontario_lab_turnkey.py --install
 
-echo ""
+echo
 echo "============================================"
 echo "  Installation Complete"
 echo "============================================"
-echo ""
+echo
 echo "OpenEMR login:"
 echo "  URL:      http://localhost:8082"
 echo "  Username: admin"
 echo "  Password: pass"
-echo ""
+echo
 
-# Detect environment and get the right URL
 if [ -z "${DISPLAY:-}" ]; then
     PUBLIC_IP=$(python3 - <<'PY'
 import urllib.request
@@ -214,36 +238,34 @@ else
     fi
 fi
 
-echo ""
+echo
 echo "NEXT STEPS:"
 echo "============================================"
-echo ""
+echo
 echo "1. OPEN YOUR BROWSER"
 echo "   Go to: $ACCESS_URL"
-echo ""
+echo
 echo "2. LOGIN"
 echo "   Username: admin"
 echo "   Password: pass"
-echo ""
+echo
 echo "3. OPEN JOHN DOE'S CHART"
 echo "   - Click 'Patients'"
 echo "   - Open John Doe's chart"
-echo "   - Stay inside the patient chart/encounter area"
-echo ""
+echo "   - Stay inside the patient chart / Encounter area"
+echo
 echo "4. CREATE A LAB ORDER"
-echo "   - Go to Encounter"
-echo "   - Open Orders -> Procedure Orders"
-echo "   - Choose John Doe"
+echo "   - Open the Encounter menu inside John Doe's chart"
+echo "   - Choose Orders -> Procedure Orders"
+echo "   - If prompted, select John Doe"
 echo "   - Click New Order"
-echo "   - Select the test (for example 3016-3 TSH)"
+echo "   - Select a test, such as 3016-3 TSH"
 echo "   - Save the order"
-echo ""
+echo
 echo "5. WATCH THE MAGIC"
 echo "   - Wait 10-15 seconds"
 echo "   - Refresh your browser"
 echo "   - See the result appear automatically!"
-echo ""
-echo "THAT'S IT! You just used HL7 messaging like hospitals do."
-echo ""
+echo
 echo "For more help, see: INSTALL.md"
-echo ""
+echo
