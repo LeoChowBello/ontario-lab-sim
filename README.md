@@ -68,6 +68,21 @@ The simulator currently loads these lab tests into OpenEMR:
 
 When students create the order inside `Encounter -> Orders -> Procedure Orders`, these tests should appear in the search menu.
 
+## Diagnosis Menu
+
+The simulator also seeds these diagnosis codes so students can choose a primary diagnosis before saving the order:
+
+- `R79.89` Other specified abnormal findings of blood chemistry
+- `D64.9` Anemia, unspecified
+- `E11.9` Type 2 diabetes mellitus without complications
+- `E78.5` Hyperlipidemia, unspecified
+- `E03.9` Hypothyroidism, unspecified
+- `R73.03` Prediabetes
+- `R53.83` Other fatigue
+- `N18.9` Chronic kidney disease, unspecified
+- `Z13.1` Encounter for screening for diabetes mellitus
+- `Z13.220` Encounter for screening for lipoid disorders
+
 ## For the Interop Team
 
 **Stage 1-2 (HL7 v2 Integration):** Understand how Mocklab simulates Ontario OLIS using file-based HL7 v2 exchange:
