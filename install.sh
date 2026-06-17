@@ -115,8 +115,8 @@ else
 fi
 
 echo ""
-echo "Step 2: Clearing any stale mocklab container..."
-docker rm -f mocklab-1 >/dev/null 2>&1 || true
+echo "Step 2: Clearing any stale mocklab and 8.x containers..."
+docker rm -f mocklab-1 openemr-8x-1 openemr-8x-mysql-1 >/dev/null 2>&1 || true
 
 echo ""
 echo "Step 3: Starting Docker containers..."
