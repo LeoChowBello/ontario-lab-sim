@@ -45,6 +45,14 @@ sys.exit(0 if importlib.util.find_spec(module) else 1)
 PY
 }
 
+pick_mocklab_port() {
+    if ss -ltn "sport = :5001" 2>/dev/null | grep -q ':5001'; then
+        echo 5002
+    else
+        echo 5001
+    fi
+}
+
 if command -v docker-compose >/dev/null 2>&1; then
     DOCKER_COMPOSE_CMD="docker-compose"
 elif command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
@@ -69,6 +77,13 @@ download_file "$REPO_BASE/config_discovery.py" "$WORKDIR/config_discovery.py"
 download_file "$REPO_BASE/ontario_lab_turnkey.py" "$WORKDIR/ontario_lab_turnkey.py"
 
 cd "$WORKDIR"
+
+export MOCKLAB_PORT="$(pick_mocklab_port)"
+if [ "$MOCKLAB_PORT" = "5002" ]; then
+    echo "   Port 5001 is already in use, so the new simulator will use port 5002."
+else
+    echo "   Using simulator port 5001."
+fi
 
 echo ""
 echo "Step 1: Checking host Python dependencies..."
@@ -100,7 +115,11 @@ else
 fi
 
 echo ""
-echo "Step 2: Starting Docker containers..."
+echo "Step 2: Clearing any stale mocklab container..."
+docker rm -f mocklab-1 >/dev/null 2>&1 || true
+
+echo ""
+echo "Step 3: Starting Docker containers..."
 echo "   - OpenEMR database (MySQL)"
 echo "   - OpenEMR web application"
 echo "   - Lab simulator"
@@ -109,7 +128,7 @@ echo ""
 $DOCKER_COMPOSE_CMD -f docker-compose-8.0.x.yml up -d --build
 
 echo ""
-echo "Step 3: Waiting for OpenEMR to become healthy..."
+echo "Step 4: Waiting for OpenEMR to become healthy..."
 status="starting"
 for attempt in $(seq 1 60); do
     status=$(docker inspect -f '{{.State.Health.Status}}' openemr-8x-1 2>/dev/null || echo starting)
@@ -127,7 +146,7 @@ if [ "$status" != "healthy" ]; then
 fi
 
 echo ""
-echo "Step 4: Configuring the database and installing tests..."
+echo "Step 5: Configuring the database and installing tests..."
 echo ""
 python3 ontario_lab_turnkey.py --install
 
